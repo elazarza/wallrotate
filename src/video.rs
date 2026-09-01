@@ -215,7 +215,12 @@ impl VideoPlayer {
             let _ = engine.SetMuted(TRUE);
             let _ = engine.SetVolume(0.0);
             let _ = engine.SetLoop(TRUE);
-            let _ = engine.SetAutoPlay(TRUE);
+            // Never AutoPlay. With it on, the engine starts itself when the
+            // source loads, our `playing` flag stays false, and pause() -- which
+            // trusted that flag -- became a no-op: an unstoppable decoder that
+            // burned GPU behind covered screens. Playback starts only when the
+            // surface's reconcile logic asks for it.
+            let _ = engine.SetAutoPlay(FALSE);
 
             let url = BSTR::from(path.as_os_str().to_string_lossy().as_ref());
             if let Err(e) = engine.SetSource(&url) {
@@ -272,20 +277,23 @@ impl VideoPlayer {
                     self.native.0, self.native.1, self.size.0, self.size.1
                 ));
             }
+            // Do NOT start playback here. Whether this surface should be
+            // running is the owner's decision (it knows if the screen is
+            // covered); it reconciles right after handling this event.
             self.ready = true;
-            self.play();
         }
-        if e == MF_MEDIA_ENGINE_EVENT_ENDED.0 {
+        if e == MF_MEDIA_ENGINE_EVENT_ENDED.0 && self.playing {
             // SetLoop normally handles this; rewind explicitly if it did not.
             unsafe {
                 let _ = self.engine.SetCurrentTime(0.0);
             }
+            self.playing = false;
             self.play();
         }
     }
 
     pub fn play(&mut self) {
-        if self.failed || self.playing {
+        if self.failed || !self.ready || self.playing {
             return;
         }
         unsafe {
@@ -295,13 +303,15 @@ impl VideoPlayer {
         }
     }
 
-    /// Genuinely pauses decoding, not just presentation.
+    /// Genuinely pauses decoding, not just presentation. Asks the *engine*
+    /// whether it is running rather than trusting our flag -- a flag that
+    /// disagrees with the engine is precisely the failure mode that once left
+    /// a decoder running forever behind covered screens.
     pub fn pause(&mut self) {
-        if !self.playing {
-            return;
-        }
         unsafe {
-            let _ = self.engine.Pause();
+            if !self.engine.IsPaused().as_bool() {
+                let _ = self.engine.Pause();
+            }
         }
         self.playing = false;
     }

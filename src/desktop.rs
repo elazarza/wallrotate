@@ -39,7 +39,8 @@ use windows::Win32::Graphics::Dxgi::{IDXGIDevice, IDXGISurface, IDXGISwapChain1,
 use windows::core::Interface;
 use windows::Win32::Media::{timeBeginPeriod, timeEndPeriod};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, EndPaint, RedrawWindow, ScreenToClient, PAINTSTRUCT, RDW_ALLCHILDREN, RDW_ERASE,
+    BeginPaint, EndPaint, GetMonitorInfoW, MonitorFromRect, RedrawWindow, ScreenToClient,
+    MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT, RDW_ALLCHILDREN, RDW_ERASE,
     RDW_INVALIDATE,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -825,14 +826,12 @@ unsafe extern "system" fn anim_proc(
         }
         WM_VIDEO_EVENT => {
             if let Some(st) = surface_state(hwnd) {
-                let paused = st.should_pause();
-                st.paused_now = paused;
                 if let Media::Video(player) = &mut st.media {
                     player.on_event(wparam.0 as u32);
                 }
-                if let Some(pacer) = &st.pacer {
-                    pacer.set_active(!paused);
-                }
+                // The event may have made the player ready; start or keep it
+                // stopped according to what the screen needs *right now*.
+                reconcile(st);
             }
             return LRESULT(0);
         }
@@ -846,21 +845,8 @@ unsafe extern "system" fn anim_proc(
         }
         WM_ANIM_SUSPEND => {
             if let Some(st) = surface_state(hwnd) {
-                let on = wparam.0 != 0;
-                if st.suspended != on {
-                    st.suspended = on;
-                    st.paused_now = st.should_pause();
-                    if let Media::Video(player) = &mut st.media {
-                        if st.paused_now {
-                            player.pause();
-                        } else {
-                            player.play();
-                        }
-                    }
-                    if let Some(pacer) = &st.pacer {
-                        pacer.set_active(!st.paused_now);
-                    }
-                }
+                st.suspended = wparam.0 != 0;
+                reconcile(st);
             }
             return LRESULT(0);
         }
@@ -881,6 +867,35 @@ unsafe extern "system" fn anim_proc(
 /// Slow housekeeping: decides whether this surface should be running.
 /// Drawing happens on WM_ANIM_TICK, not here.
 unsafe fn tick(hwnd: HWND, st: &mut SurfaceState) {
+    if reconcile(st) {
+        if let Media::Video(player) = &st.media {
+            if player.has_failed() {
+                KillTimer(hwnd, TIMER_FRAME).ok();
+                return;
+            }
+        }
+    }
+    let next = if st.paused_now {
+        PAUSED_RECHECK_MS
+    } else if matches!(&st.media, Media::VideoPending(_))
+        || matches!(&st.media, Media::Video(p) if !p.is_ready())
+    {
+        OPENING_RECHECK_MS
+    } else {
+        VIDEO_STATE_CHECK_MS
+    };
+    SetTimer(hwnd, TIMER_FRAME, next, None);
+}
+
+/// Force the player and pacer into the state the world currently calls for.
+///
+/// This is deliberately *not* edge-triggered. The old version paused only on a
+/// `paused` transition, and lost a race: the engine's "can play" event set
+/// `paused_now` and then started playback, so later ticks saw "no change" and
+/// a decoder ran forever behind covered screens. Re-asserting the desired
+/// state every time costs one cheap idempotent call and cannot get stuck.
+/// Returns true so callers can follow up on has_failed().
+unsafe fn reconcile(st: &mut SurfaceState) -> bool {
     let paused = st.should_pause();
     if paused != st.paused_now {
         crate::log::line(format!(
@@ -888,42 +903,19 @@ unsafe fn tick(hwnd: HWND, st: &mut SurfaceState) {
             st.pace.label, st.paused_now, paused
         ));
         st.paused_now = paused;
-        if let Media::Video(player) = &mut st.media {
-            // Stop the decoder outright rather than just skipping presentation.
-            if paused {
-                player.pause();
-            } else {
-                player.play();
-            }
-        }
-        if let Some(pacer) = &st.pacer {
-            pacer.set_active(!paused);
-        }
     }
-
-    let mut next = if paused {
-        PAUSED_RECHECK_MS
-    } else {
-        VIDEO_STATE_CHECK_MS
-    };
     if let Media::Video(player) = &mut st.media {
-        if player.has_failed() {
-            KillTimer(hwnd, TIMER_FRAME).ok();
-            if let Some(pacer) = &st.pacer {
-                pacer.set_active(false);
-            }
-            return;
-        }
-        if !player.is_ready() {
-            next = OPENING_RECHECK_MS;
-        } else if !paused {
+        // Stop the decoder outright rather than just skipping presentation.
+        if paused {
+            player.pause();
+        } else {
             player.play();
         }
     }
-    if matches!(st.media, Media::VideoPending(_)) {
-        next = OPENING_RECHECK_MS;
+    if let Some(pacer) = &st.pacer {
+        pacer.set_active(!paused);
     }
-    SetTimer(hwnd, TIMER_FRAME, next, None);
+    true
 }
 
 /// Fired by the pacing thread. Draws only when a frame is genuinely due.
@@ -1191,8 +1183,22 @@ unsafe fn monitor_covered(monitor: &RECT) -> bool {
             return true;
         }
     }
+    // Compare against the monitor's WORK AREA, not its full bounds. A
+    // maximised window stops at the taskbar's edge (1040 on a 1080 screen), so
+    // demanding full-bounds containment meant ordinary maximised apps never
+    // counted as covering and video kept decoding behind them. The strip
+    // behind the taskbar is not visible wallpaper anyway.
+    let mut area = *monitor;
+    let hmon = MonitorFromRect(monitor, MONITOR_DEFAULTTONEAREST);
+    let mut info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if GetMonitorInfoW(hmon, &mut info).as_bool() {
+        area = info.rcWork;
+    }
     let mut scan = CoverScan {
-        monitor: *monitor,
+        monitor: area,
         covered: false,
     };
     let _ = EnumWindows(

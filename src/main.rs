@@ -508,7 +508,24 @@ unsafe extern "system" fn main_proc(
         }
         WM_DISPLAYCHANGE => {
             if let Some(a) = app() {
-                reapply(a);
+                // Remote-desktop connects fire this without changing anything.
+                // A needless rebuild restarts every clip and costs a burst of
+                // decoding, so only react when the monitors really moved.
+                let now = a.wp.monitors();
+                let same = now.len() == a.monitors.len()
+                    && now.iter().zip(&a.monitors).all(|(x, y)| {
+                        x.id == y.id
+                            && x.rect.left == y.rect.left
+                            && x.rect.top == y.rect.top
+                            && x.rect.right == y.rect.right
+                            && x.rect.bottom == y.rect.bottom
+                    });
+                if !same || a.layer.is_broken() {
+                    log::line("display change: monitor layout changed, reapplying");
+                    reapply(a);
+                } else {
+                    log::line("display change: layout unchanged, ignoring");
+                }
             }
             return LRESULT(0);
         }

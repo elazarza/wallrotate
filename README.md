@@ -115,7 +115,7 @@ decoding rather than just skipping presentation.
 
 ### Knowing when nobody is looking
 
-Three traps here, each of which broke the pause logic in a different way:
+The traps found so far, each of which broke the pause logic in a different way:
 
 - **The desktop is a window.** When you click the desktop, `Progman` becomes
   the foreground window and its rect spans every monitor. A naive "does the
@@ -127,6 +127,19 @@ Three traps here, each of which broke the pause logic in a different way:
   screen, the foreground window covers only its own monitor — the other is
   hidden by a *background* window. The test enumerates every top-level window,
   so each monitor pauses as soon as *any* window fully covers it.
+- **A maximised window does not reach the bottom of the screen.** It stops at
+  the taskbar (1040 on a 1080 monitor), so testing containment against the full
+  monitor rect meant ordinary maximised apps *never* counted as covering — video
+  decoded for hours behind them, while true fullscreen surfaces (RDP, screenshot
+  overlays) did pause. Coverage is tested against the monitor's **work area**;
+  the strip behind the taskbar is not visible wallpaper anyway.
+- **Never let the media engine auto-play.** With `SetAutoPlay`, the engine
+  starts itself when the source loads, the app's own playing-flag stays false,
+  and a flag-guarded `pause()` becomes a no-op: an unstoppable decoder. Playback
+  is started only by the surface's reconcile logic, `pause()` asks the *engine*
+  whether it is running, and the desired state is re-asserted on every check
+  rather than only on transitions — edge-triggered pause lost a race with the
+  engine's "can play" event and got stuck in the playing state.
 - **"Visible" windows can be invisible.** UWP keeps suspended apps around as
   visible but DWM-cloaked full-screen windows; counting those would pause the
   wallpaper forever. Cloaked windows (`DWMWA_CLOAKED`) are skipped.
