@@ -39,7 +39,22 @@ nobody can see it.
 - Optional: [ffmpeg](https://ffmpeg.org) on `PATH`, if you want
   `scripts/get-backgrounds.ps1` to normalize downloaded videos to 1080p30.
 
-## Quick start
+## Install
+
+Grab `wallrotate.exe` from the [latest release](https://github.com/elazarza/wallrotate/releases/latest) and run:
+
+```
+wallrotate.exe --install
+```
+
+Package managers (submissions in review):
+
+```
+winget install wallrotate
+scoop bucket add extras && scoop install wallrotate
+```
+
+Or build from source:
 
 ```
 cargo build --release
