@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WallRotate — Launcher settings</title>
+<style>
+  :root {
+    --bg: #14161a;
+    --card: #1d2026;
+    --card-border: #2a2e36;
+    --input-bg: #101216;
+    --input-border: #363c47;
+    --text: #e6e8eb;
+    --muted: #9aa1ab;
+    --accent: #4f8cff;
+    --accent-hover: #6d9fff;
+    --ok: #4ec87e;
+    --err: #f2645a;
+    --focus-ring: 0 0 0 3px rgba(79, 140, 255, 0.28);
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+
+  .page {
+    max-width: 840px;
+    margin: 0 auto;
+    padding: 24px 20px 8px;
+  }
+
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+
+  .subtitle {
+    color: var(--muted);
+    font-size: 13px;
+    margin: 0 0 20px;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 16px 18px 18px;
+    margin-bottom: 16px;
+  }
+
+  .card h2 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+
+  .card .card-hint {
+    color: var(--muted);
+    font-size: 12.5px;
+    margin: 0 0 14px;
+  }
+
+  .hint {
+    color: var(--muted);
+    font-size: 12.5px;
+    margin-top: 8px;
+  }
+
+  input[type="text"], select {
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 9px;
+    font: inherit;
+    outline: none;
+    min-width: 0;
+  }
+  input[type="text"]:focus, select:focus {
+    border-color: var(--accent);
+    box-shadow: var(--focus-ring);
+  }
+  input[type="text"]:disabled, select:disabled {
+    opacity: 0.45;
+  }
+  input::placeholder { color: #5d6470; }
+
+  input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 15px;
+    height: 15px;
+    margin: 0 7px 0 0;
+    vertical-align: -2px;
+  }
+
+  label.check {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    padding: 3px 0;
+  }
+
+  button {
+    font: inherit;
+    border-radius: 6px;
+    border: 1px solid var(--input-border);
+    background: #262a32;
+    color: var(--text);
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: #2e333d; }
+  button:focus-visible { border-color: var(--accent); box-shadow: var(--focus-ring); outline: none; }
+  button:disabled { opacity: 0.45; cursor: default; }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+    padding: 7px 20px;
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+  .btn-icon {
+    padding: 5px 8px;
+    line-height: 1;
+    min-width: 30px;
+  }
+
+  /* Tile list */
+  .tile-grid {
+    display: grid;
+    grid-template-columns: 3.6em minmax(90px, 1fr) minmax(160px, 2.1fr) minmax(70px, 0.9fr) auto auto auto auto;
+    gap: 6px;
+    align-items: center;
+  }
+  .tile-head {
+    margin-bottom: 6px;
+    color: var(--muted);
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .tile-row { margin-bottom: 6px; }
+  .tile-row input.icon {
+    width: 3.6em;
+    text-align: center;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .empty-state {
+    border: 1px dashed var(--input-border);
+    border-radius: 8px;
+    color: var(--muted);
+    text-align: center;
+    padding: 18px;
+    margin-bottom: 8px;
+  }
+  .tile-actions { margin-top: 8px; }
+
+  /* Field rows */
+  .field-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .field-row:last-child { margin-bottom: 0; }
+  .field-row .grow { flex: 1; }
+  .field-label {
+    min-width: 90px;
+    color: var(--muted);
+  }
+
+  .widget-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 20px;
+    margin-bottom: 12px;
+  }
+
+  .weather-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    border-top: 1px solid var(--card-border);
+    padding-top: 12px;
+  }
+  .weather-row input.city { flex: 1; min-width: 140px; }
+
+  /* Sticky footer */
+  .footer {
+    position: sticky;
+    bottom: 0;
+    background: rgba(20, 22, 26, 0.96);
+    border-top: 1px solid var(--card-border);
+    padding: 12px 0;
+    margin-top: 8px;
+  }
+  .footer-inner {
+    max-width: 840px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #status {
+    flex: 1;
+    font-size: 13px;
+    color: var(--muted);
+    min-height: 1.2em;
+  }
+  #status.ok { color: var(--ok); }
+  #status.err { color: var(--err); }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <h1>Launcher settings</h1>
+  <p class="subtitle">Changes apply to the wallpaper after you press Save.</p>
+
+  <!-- 1. Launcher tiles -->
+  <section class="card">
+    <h2>Launcher tiles</h2>
+    <p class="card-hint">Buttons shown on the wallpaper. Reorder with the arrows.</p>
+    <div id="tileHead" class="tile-grid tile-head" hidden>
+      <div>Icon</div><div>Label</div><div>Target</div><div>Args</div>
+      <div></div><div></div><div></div><div></div>
+    </div>
+    <div id="tileList"></div>
+    <div id="tileEmpty" class="empty-state" hidden>No tiles yet — click “Add tile” to create one.</div>
+    <div class="tile-actions">
+      <button type="button" id="addTile">+ Add tile</button>
+    </div>
+    <div class="hint">
+      Targets can be an exe, a document, a folder path, a URL, or ms-settings: links; %ENV% variables are expanded.
+    </div>
+  </section>
+
+  <!-- 2. Page -->
+  <section class="card">
+    <h2>Page</h2>
+    <p class="card-hint">Appearance of the wallpaper page itself.</p>
+    <div class="field-row">
+      <span class="field-label">Background</span>
+      <input type="text" id="background" class="grow" spellcheck="false"
+             placeholder="https://backgrounds.local/nature/forest.jpg">
+    </div>
+    <div class="hint" style="margin-top:0; margin-bottom:12px; margin-left:100px;">
+      Empty for the preset default, or an image from your library as https://backgrounds.local/&lt;subpath&gt;
+    </div>
+    <div class="field-row">
+      <span class="field-label"></span>
+      <label class="check"><input type="checkbox" id="clock"> Show clock</label>
+    </div>
+  </section>
+
+  <!-- 3. Dashboard widgets -->
+  <section class="card">
+    <h2>Dashboard widgets</h2>
+    <p class="card-hint">These only affect the Dashboard preset.</p>
+    <div class="widget-grid">
+      <label class="check"><input type="checkbox" id="wSearch"> Search bar</label>
+      <label class="check"><input type="checkbox" id="wStats"> System stats</label>
+      <label class="check"><input type="checkbox" id="wCalendar"> Calendar</label>
+      <label class="check"><input type="checkbox" id="wLinks"> Quick links</label>
+    </div>
+    <div class="weather-row">
+      <label class="check"><input type="checkbox" id="wWeather"> Weather</label>
+      <input type="text" id="wCity" class="city" placeholder="City, e.g. Tel Aviv" spellcheck="false">
+      <select id="wUnit">
+        <option value="c">C°</option>
+        <option value="f">F°</option>
+      </select>
+    </div>
+  </section>
+</div>
+
+<!-- 4. Sticky footer -->
+<div class="footer">
+  <div class="footer-inner">
+    <div id="status"></div>
+    <button type="button" id="revertBtn">Revert</button>
+    <button type="button" id="saveBtn" class="btn-primary" disabled>Save</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- defaults & state ----------
+  var DEFAULT_WIDGETS = {
+    search: true,
+    weather: { enabled: false, city: "", unit: "c" },
+    stats: true,
+    calendar: true,
+    links: true
+  };
+
+  var loadedJson = {};      // raw object from disk — unknown keys preserved on save
+  var state = null;         // working copy the form edits
+  var savedSnapshot = "";   // JSON.stringify(assemble()) at last load/save
+  var dirty = false;
+  var saving = false;
+  var saveTimer = 0;
+  var statusTimer = 0;
+  var pickSeq = 1;
+  var pendingPicks = {};    // pick id -> tile object reference
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function hasHost() {
+    return !!(window.chrome && window.chrome.webview &&
+              typeof window.chrome.webview.postMessage === "function");
+  }
+  function post(msg) {
+    if (hasHost()) window.chrome.webview.postMessage(msg);
+  }
+
+  function isObj(v) { return v !== null && typeof v === "object" && !Array.isArray(v); }
+  function clone(v) { return JSON.parse(JSON.stringify(v)); }
+  function str(v, fb) { return typeof v === "string" ? v : fb; }
+  function bool(v, fb) { return typeof v === "boolean" ? v : fb; }
+
+  // ---------- state <-> json ----------
+  function buildState(raw) {
+    var w  = isObj(raw.widgets) ? raw.widgets : {};
+    var ww = isObj(w.weather) ? w.weather : {};
+    var tiles = Array.isArray(raw.tiles) ? clone(raw.tiles) : [];
+    tiles = tiles.filter(isObj).map(function (t) {
+      // keep unknown per-tile keys, normalize the known ones
+      t.icon   = str(t.icon, "");
+      t.label  = str(t.label, "");
+      t.target = str(t.target, "");
+      t.args   = str(t.args, "");
+      return t;
+    });
+    var unit = str(ww.unit, DEFAULT_WIDGETS.weather.unit).toLowerCase();
+    if (unit !== "c" && unit !== "f") unit = "c";
+    return {
+      background: str(raw.background, ""),
+      clock: bool(raw.clock, true),
+      tiles: tiles,
+      widgets: {
+        search:   bool(w.search,   DEFAULT_WIDGETS.search),
+        stats:    bool(w.stats,    DEFAULT_WIDGETS.stats),
+        calendar: bool(w.calendar, DEFAULT_WIDGETS.calendar),
+        links:    bool(w.links,    DEFAULT_WIDGETS.links),
+        weather: {
+          enabled: bool(ww.enabled, DEFAULT_WIDGETS.weather.enabled),
+          city:    str(ww.city,     DEFAULT_WIDGETS.weather.city),
+          unit:    unit
+        }
+      }
+    };
+  }
+
+  // Assemble the full JSON for saving; unknown keys from the loaded file survive.
+  function assemble() {
+    var out = clone(loadedJson);
+    out.background = state.background;
+    out.clock = state.clock;
+    out.tiles = clone(state.tiles);
+    var lw  = isObj(loadedJson.widgets) ? loadedJson.widgets : {};
+    var lww = isObj(lw.weather) ? lw.weather : {};
+    var widgets = clone(lw);
+    widgets.search   = state.widgets.search;
+    widgets.stats    = state.widgets.stats;
+    widgets.calendar = state.widgets.calendar;
+    widgets.links    = state.widgets.links;
+    var weather = clone(lww);
+    weather.enabled = state.widgets.weather.enabled;
+    weather.city    = state.widgets.weather.city;
+    weather.unit    = state.widgets.weather.unit;
+    widgets.weather = weather;
+    out.widgets = widgets;
+    return out;
+  }
+
+  // ---------- dirty tracking / footer ----------
+  function markChanged() {
+    dirty = JSON.stringify(assemble()) !== savedSnapshot;
+    updateFooter();
+  }
+  function updateFooter() {
+    $("saveBtn").disabled = !dirty || saving;
+    $("saveBtn").textContent = saving ? "Saving…" : "Save";
+    $("revertBtn").disabled = saving;
+  }
+  function setStatus(text, kind, autoClear) {
+    clearTimeout(statusTimer);
+    var el = $("status");
+    el.textContent = text || "";
+    el.className = kind || "";
+    if (autoClear) {
+      statusTimer = setTimeout(function () {
+        el.textContent = "";
+        el.className = "";
+      }, 4000);
+    }
+  }
+
+  // ---------- tile list ----------
+  function makeIconBtn(label, title, onClick, disabled) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn-icon";
+    b.textContent = label;
+    b.title = title;
+    b.disabled = !!disabled;
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function makeTileInput(cls, value, placeholder, onInput) {
+    var i = document.createElement("input");
+    i.type = "text";
+    i.className = cls;
+    i.value = value;
+    i.placeholder = placeholder;
+    i.spellcheck = false;
+    i.addEventListener("input", function () { onInput(i.value); markChanged(); });
+    return i;
+  }
+
+  function renderTiles() {
+    var list = $("tileList");
+    list.textContent = "";
+    var tiles = state.tiles;
+    $("tileEmpty").hidden = tiles.length !== 0;
+    $("tileHead").hidden = tiles.length === 0;
+
+    tiles.forEach(function (tile, idx) {
+      var row = document.createElement("div");
+      row.className = "tile-grid tile-row";
+
+      row.appendChild(makeTileInput("icon", tile.icon, "🚀", function (v) { tile.icon = v; }));
+      row.appendChild(makeTileInput("label", tile.label, "Label", function (v) { tile.label = v; }));
+      row.appendChild(makeTileInput("target", tile.target, "notepad.exe · C:\\path · https://…", function (v) { tile.target = v; }));
+      row.appendChild(makeTileInput("args", tile.args, "Arguments", function (v) { tile.args = v; }));
+
+      row.appendChild(makeIconBtn("📄", "Browse for a file", function () {
+        var id = pickSeq++;
+        pendingPicks[id] = tile;
+        if (hasHost()) {
+          post({ action: "pick_file", id: id });
+        } else {
+          setStatus("File picker needs the WallRotate host (browser preview).", "err", true);
+        }
+      }));
+      row.appendChild(makeIconBtn("↑", "Move up", function () {
+        state.tiles.splice(idx, 1);
+        state.tiles.splice(idx - 1, 0, tile);
+        renderTiles(); markChanged();
+      }, idx === 0));
+      row.appendChild(makeIconBtn("↓", "Move down", function () {
+        state.tiles.splice(idx, 1);
+        state.tiles.splice(idx + 1, 0, tile);
+        renderTiles(); markChanged();
+      }, idx === tiles.length - 1));
+      row.appendChild(makeIconBtn("✕", "Remove tile", function () {
+        state.tiles.splice(idx, 1);
+        renderTiles(); markChanged();
+      }));
+
+      list.appendChild(row);
+    });
+  }
+
+  // ---------- other sections ----------
+  function renderForm() {
+    $("background").value = state.background;
+    $("clock").checked = state.clock;
+    $("wSearch").checked = state.widgets.search;
+    $("wStats").checked = state.widgets.stats;
+    $("wCalendar").checked = state.widgets.calendar;
+    $("wLinks").checked = state.widgets.links;
+    $("wWeather").checked = state.widgets.weather.enabled;
+    $("wCity").value = state.widgets.weather.city;
+    $("wUnit").value = state.widgets.weather.unit;
+    updateWeatherEnabled();
+    renderTiles();
+    updateFooter();
+  }
+
+  function updateWeatherEnabled() {
+    var on = state.widgets.weather.enabled;
+    $("wCity").disabled = !on;
+    $("wUnit").disabled = !on;
+  }
+
+  function bindStatic() {
+    $("addTile").addEventListener("click", function () {
+      state.tiles.push({ icon: "⭐", label: "", target: "", args: "" });
+      renderTiles(); markChanged();
+      var rows = $("tileList").querySelectorAll(".tile-row");
+      if (rows.length) {
+        var lbl = rows[rows.length - 1].querySelector("input.label");
+        if (lbl) lbl.focus();
+      }
+    });
+
+    $("background").addEventListener("input", function () {
+      state.background = this.value; markChanged();
+    });
+    $("clock").addEventListener("change", function () {
+      state.clock = this.checked; markChanged();
+    });
+    $("wSearch").addEventListener("change", function () {
+      state.widgets.search = this.checked; markChanged();
+    });
+    $("wStats").addEventListener("change", function () {
+      state.widgets.stats = this.checked; markChanged();
+    });
+    $("wCalendar").addEventListener("change", function () {
+      state.widgets.calendar = this.checked; markChanged();
+    });
+    $("wLinks").addEventListener("change", function () {
+      state.widgets.links = this.checked; markChanged();
+    });
+    $("wWeather").addEventListener("change", function () {
+      state.widgets.weather.enabled = this.checked;
+      updateWeatherEnabled(); markChanged();
+    });
+    $("wCity").addEventListener("input", function () {
+      state.widgets.weather.city = this.value; markChanged();
+    });
+    $("wUnit").addEventListener("change", function () {
+      state.widgets.weather.unit = this.value; markChanged();
+    });
+
+    $("saveBtn").addEventListener("click", save);
+    $("revertBtn").addEventListener("click", function () {
+      load(true);
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) {
+        e.preventDefault();
+        if (dirty && !saving) save();
+      }
+    });
+  }
+
+  // ---------- save / load ----------
+  function save() {
+    if (!dirty || saving) return;
+    if (!hasHost()) {
+      setStatus("No host connection — running outside WallRotate, nothing saved.", "err", true);
+      return;
+    }
+    saving = true;
+    updateFooter();
+    setStatus("Saving…", "");
+    var data = assemble();
+    post({ action: "save_launcher", data: data });
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      if (saving) {
+        saving = false;
+        updateFooter();
+        setStatus("No response from host — try again.", "err");
+      }
+    }, 10000);
+  }
+
+  function onSaved(m) {
+    clearTimeout(saveTimer);
+    if (!saving) return;
+    saving = false;
+    if (m.ok) {
+      loadedJson = assemble();
+      savedSnapshot = JSON.stringify(assemble());
+      dirty = false;
+      setStatus("Saved — wallpaper reloaded", "ok", true);
+    } else {
+      setStatus("Save failed: " + (m.error || "unknown error"), "err");
+    }
+    updateFooter();
+  }
+
+  function onPickedFile(m) {
+    var tile = pendingPicks[m.id];
+    delete pendingPicks[m.id];
+    if (!tile) return;
+    var path = str(m.path, "");
+    if (!path) return; // cancelled
+    if (state.tiles.indexOf(tile) === -1) return; // row was removed meanwhile
+    tile.target = path;
+    renderTiles();
+    markChanged();
+  }
+
+  function load(isRevert) {
+    var fin = function (raw, failNote) {
+      loadedJson = isObj(raw) ? raw : {};
+      state = buildState(loadedJson);
+      savedSnapshot = JSON.stringify(assemble());
+      dirty = false;
+      saving = false;
+      renderForm();
+      if (failNote) setStatus(failNote, "err");
+      else if (isRevert) setStatus("Reverted to saved settings.", "", true);
+      else setStatus("", "");
+    };
+    try {
+      fetch("/launcher.json", { cache: "no-store" })
+        .then(function (r) {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.json();
+        })
+        .then(function (json) { fin(json, ""); })
+        .catch(function () {
+          fin({}, "Could not load launcher.json — showing defaults.");
+        });
+    } catch (e) {
+      fin({}, "Could not load launcher.json — showing defaults.");
+    }
+  }
+
+  // ---------- host messages ----------
+  if (hasHost() && typeof window.chrome.webview.addEventListener === "function") {
+    window.chrome.webview.addEventListener("message", function (e) {
+      var m = e.data;
+      if (!isObj(m)) return;
+      if (m.type === "picked_file") onPickedFile(m);
+      else if (m.type === "saved") onSaved(m);
+    });
+  }
+
+  // ---------- go ----------
+  bindStatic();
+  load(false);
+})();
+</script>
+</body>
+</html>

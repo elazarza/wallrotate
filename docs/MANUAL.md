@@ -269,7 +269,8 @@ everywhere, pinned or not.
 
 Everything about the clickable web wallpaper: pick a preset (Grid / Dock /
 Minimal) or turn it **Off**, choose which screens show it, toggle
-**Clickable (launch on click)**, and **Edit launcher tiles...** to open
+**Clickable (launch on click)**, **Launcher settings...** for the GUI editor,
+and **Edit launcher.json...** to open
 `launcher.json`. Covered in full in
 [section 5](#5-the-clickable-web-launcher).
 
@@ -335,23 +336,63 @@ Tray ▸ **Web launcher ▸** and pick a design:
 | --- | --- |
 | **Grid** | A centred clock with a row of labelled tiles beneath it. |
 | **Dock** | A macOS-style dock of tiles along the bottom edge, clock above. |
-| **Minimal** | Small text links in a corner; the quietest of the three. |
+| **Minimal** | Small text links in a corner; the quietest of the four. |
+| **Dashboard** | A widget board: clock + web search header, weather, live PC stats, a calendar, and your tiles as quick links. See below. |
 
 The same submenu chooses **which screens** show the launcher (all, or ticked
 individually — the other screens keep their normal rotating wallpapers), and
 whether it is **Clickable**. With *Clickable* off the page is purely
 decorative and WallRotate does not touch mouse input at all.
 
-### Configuring the tiles
+### The settings GUI
 
-Pick **Edit launcher tiles...** from the submenu (or open
-`%APPDATA%\WallRotate\web\launcher.json` yourself). All three presets read
-this one file:
+Pick **Launcher settings...** from the submenu. A window opens where you can:
+
+- **Edit tiles** — icon (any emoji), label, target, and arguments per tile,
+  with a **Browse** button that opens a native file picker, up/down reordering,
+  add and remove. Targets can be an exe, a document, a folder, a URL, or a
+  `ms-settings:` link; `%ENV%` variables are expanded.
+- **Page options** — the background image and the clock toggle.
+- **Dashboard widgets** — turn each widget on or off, and set the weather
+  city and °C/°F unit.
+
+**Save** writes `launcher.json` and reloads the wallpaper immediately — you
+see the change behind the window as soon as you click it.
+
+### The dashboard preset
+
+The dashboard turns a screen into a widget board in the style of a homelab
+dashboard: translucent cards on your chosen background.
+
+| Widget | What it shows | Where the data comes from |
+| --- | --- | --- |
+| **Clock + search** | Big clock, date, and a web search bar (Enter opens your default browser). | Local. |
+| **Weather** | Current temperature and conditions, humidity, wind, 5-day forecast. | [Open-Meteo](https://open-meteo.com), no API key. Set your city in the settings GUI. This is the only widget that touches the network. |
+| **System** | Live CPU %, RAM, per-disk free space, network up/down, uptime, battery. | The WallRotate process itself feeds the page a snapshot every 2 seconds — nothing is installed and nothing else runs. |
+| **Calendar** | The current month, today highlighted. | Local. |
+| **Quick links** | Your launcher tiles in compact form. | `launcher.json`. |
+
+When the dashboard is covered by a window it is suspended like every other
+animated background, and the stats polling stops with it — a covered
+dashboard costs nothing.
+
+### Configuring by hand: launcher.json
+
+Prefer the GUI above; the file behind it is
+`%APPDATA%\WallRotate\web\launcher.json` (**Edit launcher.json...** in the
+submenu opens it). All presets read this one file:
 
 ```json
 {
   "background": "",
   "clock": true,
+  "widgets": {
+    "search": true,
+    "stats": true,
+    "calendar": true,
+    "links": true,
+    "weather": { "enabled": true, "city": "Tel Aviv", "unit": "c" }
+  },
   "tiles": [
     { "icon": "🗒️", "label": "Notepad",   "target": "notepad.exe" },
     { "icon": "📁", "label": "Downloads",  "target": "%USERPROFILE%\\Downloads" },
@@ -371,6 +412,7 @@ this one file:
   `"https://backgrounds.local/nature/forest.jpg"` for
   `<wallpaper_dir>\nature\forest.jpg`.
 - `clock` shows or hides the clock on presets that have one.
+- `widgets` only affects the Dashboard preset; the other presets ignore it.
 
 Changes take effect the next time the page loads — pick the preset again in
 the tray menu, or **Reload settings**.
@@ -416,6 +458,7 @@ the video decoder — a covered launcher costs nothing.
 | `--prev` | Step back to the previous wallpapers |
 | `--screen N` | Change only screen N (1 = leftmost), leaving the others alone |
 | `--rescan` | Re-read the wallpaper folder |
+| `--settings` | Open the launcher settings window (see [section 5](#5-the-clickable-web-launcher)) |
 | `--quit` | Stop the running instance |
 
 Only one instance runs at a time. The control verbs (`--next`, `--prev`,

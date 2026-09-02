@@ -252,7 +252,7 @@ impl Config {
         if w.is_empty() {
             return String::from("off");
         }
-        if matches!(w, "grid" | "dock" | "minimal") {
+        if matches!(w, "grid" | "dock" | "minimal" | "dashboard") {
             return w.to_string();
         }
         std::path::Path::new(w)

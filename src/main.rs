@@ -20,6 +20,8 @@ mod hook;
 mod hotkey;
 mod log;
 mod scan;
+mod settings_ui;
+mod stats;
 mod video;
 mod state;
 mod tray;
@@ -85,6 +87,10 @@ const WM_CMD_PREV: u32 = WM_APP + 3;
 const WM_CMD_RESCAN: u32 = WM_APP + 4;
 /// wparam carries the 0-based screen index.
 const WM_CMD_NEXT_SCREEN: u32 = WM_APP + 5;
+/// Posted by web.rs after the settings GUI rewrites launcher.json.
+pub(crate) const WM_CMD_WEB_RELOAD: u32 = WM_APP + 6;
+/// `wallrotate --settings`: open the launcher settings window.
+const WM_CMD_OPEN_SETTINGS: u32 = WM_APP + 7;
 
 // Tray menu item ids.
 const ID_NEXT: usize = 1001;
@@ -110,6 +116,8 @@ const ID_WEB_MINIMAL: usize = 1020;
 const ID_WEB_INTERACTIVE: usize = 1021;
 const ID_WEB_EDIT: usize = 1022;
 const ID_WEB_ALL: usize = 1023;
+const ID_WEB_SETTINGS: usize = 1024;
+const ID_WEB_DASHBOARD: usize = 1025;
 /// One id per screen, offset by its index.
 const ID_ROTATE_SCREEN_BASE: usize = 1100;
 /// One-shot "change this screen now", one id per screen.
@@ -194,6 +202,7 @@ fn main() {
                  wallrotate.exe --prev          go back\n\
                  wallrotate.exe --screen N      change only screen N (1 = leftmost)\n\
                  wallrotate.exe --rescan        re-read the wallpaper folder\n\
+                 wallrotate.exe --settings      open the launcher settings window\n\
                  wallrotate.exe --quit          stop the running instance",
             );
             return;
@@ -311,6 +320,7 @@ fn main() {
 
     {
         let a = app().expect("app installed");
+        settings_ui::close();
         hook::clear();
         a.layer.clear();
         a.tray.remove();
@@ -521,6 +531,18 @@ unsafe extern "system" fn main_proc(
                 a.lib = scan::scan(&a.cfg);
                 rotate(a, 1);
             }
+            return LRESULT(0);
+        }
+        WM_CMD_WEB_RELOAD => {
+            // launcher.json was rewritten by the settings GUI.
+            if let Some(a) = app() {
+                a.layer.reload_web();
+            }
+            return LRESULT(0);
+        }
+        WM_CMD_OPEN_SETTINGS => {
+            log::line("main: WM_CMD_OPEN_SETTINGS received");
+            settings_ui::open();
             return LRESULT(0);
         }
         WM_DISPLAYCHANGE => {
@@ -822,7 +844,15 @@ unsafe fn show_menu(a: &mut App) {
             ID_WEB_MINIMAL,
             w!("Minimal preset"),
         );
-        if !setting.is_empty() && !matches!(setting.as_str(), "grid" | "dock" | "minimal") {
+        let _ = AppendMenuW(
+            sub,
+            flag(setting == "dashboard"),
+            ID_WEB_DASHBOARD,
+            w!("Dashboard preset (widgets)"),
+        );
+        if !setting.is_empty()
+            && !matches!(setting.as_str(), "grid" | "dock" | "minimal" | "dashboard")
+        {
             // A custom page path set in config.toml; shown, not switchable here.
             let label = wide(&format!("Custom: {}", a.cfg.web_label()));
             let _ = AppendMenuW(
@@ -855,7 +885,8 @@ unsafe fn show_menu(a: &mut App) {
             ID_WEB_INTERACTIVE,
             w!("Clickable (launch on click)"),
         );
-        let _ = AppendMenuW(sub, MF_STRING, ID_WEB_EDIT, w!("Edit launcher tiles..."));
+        let _ = AppendMenuW(sub, MF_STRING, ID_WEB_SETTINGS, w!("Launcher settings..."));
+        let _ = AppendMenuW(sub, MF_STRING, ID_WEB_EDIT, w!("Edit launcher.json..."));
         let label = wide(&format!("Web launcher ({})", a.cfg.web_label()));
         let _ = AppendMenuW(menu, MF_POPUP, sub.0 as usize, PCWSTR(label.as_ptr()));
     }
@@ -972,6 +1003,8 @@ fn on_command(a: &mut App, id: usize) {
         ID_WEB_GRID => set_web_wallpaper(a, "grid"),
         ID_WEB_DOCK => set_web_wallpaper(a, "dock"),
         ID_WEB_MINIMAL => set_web_wallpaper(a, "minimal"),
+        ID_WEB_DASHBOARD => set_web_wallpaper(a, "dashboard"),
+        ID_WEB_SETTINGS => settings_ui::open(),
         ID_WEB_ALL => {
             a.cfg.web_screens.clear();
             config::save(&a.cfg);
@@ -1640,6 +1673,8 @@ fn is_control_verb(verb: &str) -> bool {
             | "--quit"
             | "/quit"
             | "--exit"
+            | "--settings"
+            | "/settings"
     )
 }
 
@@ -1648,6 +1683,7 @@ fn forward_command(verb: &str, number: Option<usize>) {
         "--next" | "/next" | "--rotate" | "/rotate" => (WM_CMD_NEXT, 0usize),
         "--prev" | "/prev" | "--previous" => (WM_CMD_PREV, 0),
         "--rescan" | "/rescan" => (WM_CMD_RESCAN, 0),
+        "--settings" | "/settings" => (WM_CMD_OPEN_SETTINGS, 0),
         // Screens are 1-based on the command line, 0-based internally.
         "--screen" | "/screen" => (
             WM_CMD_NEXT_SCREEN,

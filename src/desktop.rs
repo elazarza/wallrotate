@@ -62,6 +62,8 @@ const VIDEO_STATE_CHECK_MS: u32 = 500;
 pub const WM_ANIM_SUSPEND: u32 = WM_APP + 20;
 /// Posted by a surface's pacing thread when it is time to consider a frame.
 pub const WM_ANIM_TICK: u32 = WM_APP + 22;
+/// Ask a web surface to reload its page (launcher.json changed).
+pub const WM_ANIM_WEB_RELOAD: u32 = WM_APP + 23;
 
 /// Drives frame timing from a dedicated thread.
 ///
@@ -530,6 +532,17 @@ impl DesktopLayer {
             .collect()
     }
 
+    /// Reload the page on every web surface (after launcher.json changed).
+    pub fn reload_web(&self) {
+        for s in &self.surfaces {
+            if s.web {
+                unsafe {
+                    let _ = PostMessageW(s.hwnd, WM_ANIM_WEB_RELOAD, WPARAM(0), LPARAM(0));
+                }
+            }
+        }
+    }
+
     /// Tear down every surface and let the static wallpaper show through.
     pub fn clear(&mut self) {
         for s in self.surfaces.drain(..) {
@@ -898,6 +911,14 @@ unsafe extern "system" fn anim_proc(
             // second, so it does no syscalls beyond the drawing itself.
             if let Some(st) = surface_state(hwnd) {
                 on_pace_tick(hwnd, st);
+            }
+            return LRESULT(0);
+        }
+        WM_ANIM_WEB_RELOAD => {
+            if let Some(st) = surface_state(hwnd) {
+                if let Media::Web(web) = &st.media {
+                    web.reload();
+                }
             }
             return LRESULT(0);
         }

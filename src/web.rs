@@ -195,41 +195,12 @@ fn configure(
             let _ = settings.SetIsZoomControlEnabled(FALSE);
         }
 
-        let wv3: ICoreWebView2_3 = webview.cast()?;
-        wv3.SetVirtualHostNameToFolderMapping(
-            &HSTRING::from(PAGES_HOST),
-            &HSTRING::from(spec.root.as_os_str()),
-            COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW,
-        )?;
-        if spec.backgrounds.is_dir() {
-            let _ = wv3.SetVirtualHostNameToFolderMapping(
-                &HSTRING::from(BACKGROUNDS_HOST),
-                &HSTRING::from(spec.backgrounds.as_os_str()),
-                COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW,
-            );
-        }
+        map_hosts(&webview, &spec.root, Some(&spec.backgrounds))?;
 
         let mut tokens = [EventRegistrationToken::default(); 3];
 
-        // Tile clicks arrive here.
-        webview.add_WebMessageReceived(
-            &WebMessageReceivedEventHandler::create(Box::new(|_, args| {
-                if let Some(args) = args {
-                    let mut source = PWSTR::null();
-                    let _ = args.Source(&mut source);
-                    let source = crate::util::from_wide_ptr(source.0);
-                    if !source.starts_with(&format!("https://{}", PAGES_HOST)) {
-                        return Ok(());
-                    }
-                    let mut json = PWSTR::null();
-                    if args.WebMessageAsJson(&mut json).is_ok() {
-                        handle_message(&crate::util::from_wide_ptr(json.0));
-                    }
-                }
-                Ok(())
-            })),
-            &mut tokens[0],
-        )?;
+        // Tile clicks, stats requests, and settings saves arrive here.
+        attach_message_handler(&webview, &mut tokens[0])?;
 
         // The page may only ever be our local hosts; anything else opens in
         // the default browser instead of inside the wallpaper.
@@ -282,19 +253,139 @@ fn configure(
     }
 }
 
-/// `{"action":"open","target":"...","args":"..."}` from the page.
-fn handle_message(json: &str) {
+/// Map our virtual hosts on a webview: pages at wallpaper.local, and
+/// (optionally) the wallpaper library at backgrounds.local.
+pub(crate) fn map_hosts(
+    webview: &ICoreWebView2,
+    root: &Path,
+    backgrounds: Option<&Path>,
+) -> windows::core::Result<()> {
+    unsafe {
+        let wv3: ICoreWebView2_3 = webview.cast()?;
+        wv3.SetVirtualHostNameToFolderMapping(
+            &HSTRING::from(PAGES_HOST),
+            &HSTRING::from(root.as_os_str()),
+            COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW,
+        )?;
+        if let Some(bg) = backgrounds {
+            if bg.is_dir() {
+                let _ = wv3.SetVirtualHostNameToFolderMapping(
+                    &HSTRING::from(BACKGROUNDS_HOST),
+                    &HSTRING::from(bg.as_os_str()),
+                    COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW,
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The one message handler shared by wallpaper pages and the settings window.
+/// Only accepts messages whose source is our own wallpaper.local origin.
+pub(crate) fn attach_message_handler(
+    webview: &ICoreWebView2,
+    token: &mut EventRegistrationToken,
+) -> windows::core::Result<()> {
+    unsafe {
+        webview.add_WebMessageReceived(
+            &WebMessageReceivedEventHandler::create(Box::new(|sender, args| {
+                if let Some(args) = args {
+                    let mut source = PWSTR::null();
+                    let _ = args.Source(&mut source);
+                    let source = crate::util::from_wide_ptr(source.0);
+                    if !source.starts_with(&format!("https://{}", PAGES_HOST)) {
+                        return Ok(());
+                    }
+                    let mut json = PWSTR::null();
+                    if args.WebMessageAsJson(&mut json).is_ok() {
+                        handle_message(sender.as_ref(), &crate::util::from_wide_ptr(json.0));
+                    }
+                }
+                Ok(())
+            })),
+            token,
+        )
+    }
+}
+
+/// Send a JSON object to a page (the page sees it as a `message` event).
+pub(crate) fn post_json(webview: &ICoreWebView2, value: &serde_json::Value) {
+    unsafe {
+        let _ = webview.PostWebMessageAsJson(&HSTRING::from(value.to_string()));
+    }
+}
+
+/// Messages a page can send the host. `sender` is the webview that asked,
+/// so replies go back to exactly that page.
+fn handle_message(sender: Option<&ICoreWebView2>, json: &str) {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
         return;
     };
-    if value.get("action").and_then(|v| v.as_str()) != Some("open") {
-        return;
+    match value.get("action").and_then(|v| v.as_str()) {
+        Some("open") => {
+            let Some(target) = value.get("target").and_then(|v| v.as_str()) else {
+                return;
+            };
+            let args = value.get("args").and_then(|v| v.as_str()).unwrap_or("");
+            open_target(target, args);
+        }
+        // The dashboard polls this every couple of seconds while visible.
+        Some("get_stats") => {
+            if let Some(webview) = sender {
+                post_json(webview, &crate::stats::sample());
+            }
+        }
+        // The settings GUI saving launcher.json.
+        Some("save_launcher") => {
+            let reply = match value.get("data") {
+                Some(data) if data.is_object() => {
+                    let text = serde_json::to_string_pretty(data).unwrap_or_default();
+                    match std::fs::write(launcher_path(), text) {
+                        Ok(()) => {
+                            crate::log::line("web: launcher.json saved from settings GUI");
+                            notify_main_reload();
+                            serde_json::json!({"type": "saved", "ok": true})
+                        }
+                        Err(e) => serde_json::json!({
+                            "type": "saved", "ok": false,
+                            "error": format!("could not write launcher.json: {}", e),
+                        }),
+                    }
+                }
+                _ => serde_json::json!({
+                    "type": "saved", "ok": false, "error": "malformed save payload",
+                }),
+            };
+            if let Some(webview) = sender {
+                post_json(webview, &reply);
+            }
+        }
+        // The settings GUI asking for a native file picker. The dialog is
+        // modal, so it runs from the settings window's own message handling
+        // rather than inside this COM callback.
+        Some("pick_file") => {
+            let id = value.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
+            crate::settings_ui::request_pick(id);
+        }
+        _ => {}
     }
-    let Some(target) = value.get("target").and_then(|v| v.as_str()) else {
-        return;
-    };
-    let args = value.get("args").and_then(|v| v.as_str()).unwrap_or("");
-    open_target(target, args);
+}
+
+/// Tell the main window to reload every web wallpaper surface.
+fn notify_main_reload() {
+    unsafe {
+        if let Ok(main) = windows::Win32::UI::WindowsAndMessaging::FindWindowW(
+            windows::core::w!("WallRotateMainWindow"),
+            PCWSTR::null(),
+        ) {
+            let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
+                main,
+                crate::WM_CMD_WEB_RELOAD,
+                windows::Win32::Foundation::WPARAM(0),
+                windows::Win32::Foundation::LPARAM(0),
+            );
+        }
+    }
 }
 
 /// Hand a user-configured target to the shell: an exe, a document, a folder,
@@ -345,6 +436,13 @@ pub struct WebWallpaper {
 }
 
 impl WebWallpaper {
+    /// Re-read the page (used after the settings GUI rewrites launcher.json).
+    pub fn reload(&self) {
+        unsafe {
+            let _ = self.webview.Reload();
+        }
+    }
+
     /// Hiding the controller stops WebView2 compositing; TrySuspend also lets
     /// Chromium park the renderer process. Together a covered launcher costs
     /// nothing, same as paused video.
@@ -379,11 +477,20 @@ impl Drop for WebWallpaper {
 const PRESET_GRID: &str = include_str!("../presets/web/grid/index.html");
 const PRESET_DOCK: &str = include_str!("../presets/web/dock/index.html");
 const PRESET_MINIMAL: &str = include_str!("../presets/web/minimal/index.html");
+const PRESET_DASHBOARD: &str = include_str!("../presets/web/dashboard/index.html");
+const PAGE_SETTINGS: &str = include_str!("../presets/web/settings/index.html");
 
 const DEFAULT_LAUNCHER: &str = r#"{
-    "_help": "Targets for the web launcher wallpaper. 'target' can be an exe, a document, a folder, a URL, or anything else the shell can open; %ENV% variables are expanded. 'background' may be empty, or an image from your library via https://backgrounds.local/<relative path>. Edit and pick 'Reload settings' (or just wait: pages re-read this on each rotation).",
+    "_help": "Config for the web launcher wallpaper -- easiest edited from the tray: Web launcher > Launcher settings... 'target' can be an exe, a document, a folder, a URL, or anything else the shell can open; %ENV% variables are expanded. 'background' may be empty, or an image from your library via https://backgrounds.local/<relative path>. 'widgets' only affects the Dashboard preset.",
     "background": "",
     "clock": true,
+    "widgets": {
+        "search": true,
+        "stats": true,
+        "calendar": true,
+        "links": true,
+        "weather": { "enabled": false, "city": "", "unit": "c" }
+    },
     "tiles": [
         { "icon": "🗒️", "label": "Notepad",   "target": "notepad.exe" },
         { "icon": "🧮", "label": "Calculator", "target": "calc.exe" },
@@ -407,6 +514,8 @@ pub fn write_presets() {
         ("grid", PRESET_GRID),
         ("dock", PRESET_DOCK),
         ("minimal", PRESET_MINIMAL),
+        ("dashboard", PRESET_DASHBOARD),
+        ("settings", PAGE_SETTINGS),
     ] {
         let dir = root.join("presets").join(name);
         if std::fs::create_dir_all(&dir).is_ok() {
@@ -429,7 +538,7 @@ pub fn resolve(setting: &str) -> Option<(PathBuf, String)> {
     if setting.is_empty() {
         return None;
     }
-    if matches!(setting, "grid" | "dock" | "minimal") {
+    if matches!(setting, "grid" | "dock" | "minimal" | "dashboard") {
         return Some((
             web_root(),
             format!("https://{}/presets/{}/index.html", PAGES_HOST, setting),

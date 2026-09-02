@@ -26,10 +26,13 @@ nobody can see it.
   start with Windows, exit.
 - **Clickable web wallpaper** — an HTML launcher page rendered on the desktop
   (below the icons) with tiles that open apps, folders, and URLs on click.
-  Three built-in presets (grid, dock, minimal), a clock, optional background
-  image from your library, all configured through one `launcher.json` — or
-  point it at your own HTML page. Rendered by the Edge WebView2 runtime that
-  ships with Windows 11.
+  Four built-in presets: grid, dock, minimal, and a **dashboard** with live
+  widgets — weather (Open-Meteo, no API key), CPU/RAM/disk/network stats fed
+  by the host, a calendar, a web search bar, and your launcher tiles.
+  Everything is configured from a **settings GUI** in the tray menu (tile
+  editor with a native file browser, widget toggles) that saves to one
+  `launcher.json` and live-reloads the wallpaper — or point it at your own
+  HTML page. Rendered by the Edge WebView2 runtime that ships with Windows 11.
 - **Scriptable**: `--next` `--prev` `--screen N` `--rescan` `--quit` talk to
   the running instance; `--install` / `--uninstall` manage the login entry.
 - **Pauses whenever it is invisible** — a window covering the screen,

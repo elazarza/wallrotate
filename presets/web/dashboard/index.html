@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WallRotate — Dashboard</title>
+<style>
+  :root {
+    --accent: #7aa2ff;
+    --accent-soft: rgba(122, 162, 255, 0.16);
+    --text: #e8ecf6;
+    --muted: rgba(232, 236, 246, 0.55);
+    --faint: rgba(232, 236, 246, 0.32);
+    --card-bg: rgba(15, 19, 34, 0.55);
+    --card-border: rgba(255, 255, 255, 0.08);
+    --inset-bg: rgba(255, 255, 255, 0.055);
+    --radius: 14px;
+    --ok: #4ade80;
+    --hot: #f87171;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: system-ui, "Segoe UI", Roboto, sans-serif, "Segoe UI Emoji", "Noto Color Emoji";
+    font-size: 14px;
+    color: var(--text);
+    background-color: #0b1026;
+    background-image:
+      radial-gradient(1100px 750px at 78% 8%, rgba(58, 66, 148, 0.55) 0%, rgba(58, 66, 148, 0) 60%),
+      radial-gradient(950px 700px at 12% 88%, rgba(96, 52, 141, 0.45) 0%, rgba(96, 52, 141, 0) 55%),
+      linear-gradient(135deg, #0b1026 0%, #141238 48%, #221847 100%);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  #page {
+    height: 100%;
+    padding: 24px 24px 90px 150px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* ---------- cards ---------- */
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    backdrop-filter: blur(18px) saturate(1.25);
+    -webkit-backdrop-filter: blur(18px) saturate(1.25);
+    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.35);
+    animation: cardIn 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: none; }
+  }
+  #headerBar { animation-delay: 0.02s; }
+  #grid > .card:nth-child(1) { animation-delay: 0.09s; }
+  #grid > .card:nth-child(2) { animation-delay: 0.15s; }
+  #grid > .card:nth-child(3) { animation-delay: 0.21s; }
+  #grid > .card:nth-child(4) { animation-delay: 0.27s; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+
+  /* ---------- header bar ---------- */
+  #headerBar {
+    flex: 0 0 auto;
+    min-height: 62px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 12px 22px;
+  }
+  #clockWrap { line-height: 1.15; }
+  #clockTime {
+    font-size: 38px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  #clockDate { font-size: 13px; color: var(--muted); margin-top: 1px; }
+
+  #searchWrap { flex: 1 1 auto; max-width: 540px; margin-left: auto; }
+  #searchInput {
+    width: 100%;
+    padding: 11px 20px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--text);
+    background: var(--inset-bg);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 999px;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  }
+  #searchInput::placeholder { color: var(--faint); }
+  #searchInput:focus {
+    border-color: rgba(122, 162, 255, 0.55);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  /* ---------- widget grid ---------- */
+  #grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    grid-auto-rows: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .widget {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    padding: 16px 20px 18px;
+    overflow: hidden;
+  }
+  .widget-head {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .widget-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #565d72;
+    transition: background 0.4s ease, box-shadow 0.4s ease;
+  }
+  .dot.live {
+    background: var(--ok);
+    box-shadow: 0 0 7px rgba(74, 222, 128, 0.65);
+  }
+
+  /* ---------- weather ---------- */
+  #weatherBody { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+  .wx-now { display: flex; align-items: center; gap: 14px; }
+  .wx-temp {
+    font-size: 46px;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .wx-emoji { font-size: 38px; line-height: 1; }
+  .wx-meta { margin-left: auto; text-align: right; min-width: 0; }
+  .wx-city {
+    font-size: 15px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .wx-line { font-size: 12px; color: var(--muted); margin-top: 3px; white-space: nowrap; }
+  .wx-days {
+    margin-top: auto;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .wx-day { flex: 1 1 0; text-align: center; min-width: 0; }
+  .wx-d1 { font-size: 11px; color: var(--faint); font-weight: 600; }
+  .wx-d2 { font-size: 20px; margin: 4px 0 3px; }
+  .wx-d3 { font-size: 12px; font-variant-numeric: tabular-nums; }
+  .wx-d3 .lo { color: var(--faint); }
+  .wx-unavail {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--faint);
+    font-size: 13px;
+  }
+
+  /* ---------- system stats ---------- */
+  #statsBody { display: flex; flex-direction: column; gap: 11px; flex: 1 1 auto; min-height: 0; }
+  .stat-row { flex: 0 0 auto; }
+  .stat-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 5px;
+    gap: 10px;
+  }
+  .stat-label { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .stat-val {
+    font-size: 12px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .bar {
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+  .fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #5f86e8, var(--accent));
+    transition: width 0.8s ease, background 0.4s ease;
+  }
+  .fill.hot { background: linear-gradient(90deg, #e05a5a, var(--hot)); }
+  #statsFoot {
+    margin-top: auto;
+    padding-top: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .chip {
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--inset-bg);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    padding: 4px 11px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- calendar ---------- */
+  #calCard .widget-head { margin-bottom: 6px; }
+  .cal-nav {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .cal-title { font-size: 14px; font-weight: 600; cursor: pointer; }
+  .cal-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .cal-btn:hover { background: rgba(255, 255, 255, 0.09); color: var(--text); }
+  #calGrid {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    grid-template-rows: auto repeat(6, minmax(0, 1fr));
+    gap: 2px;
+  }
+  .cal-h {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--faint);
+    text-align: center;
+    align-self: center;
+    padding: 2px 0 4px;
+  }
+  .cal-d {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    border-radius: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .cal-d.dim { color: var(--faint); opacity: 0.55; }
+  .cal-d.today {
+    color: var(--text);
+    font-weight: 700;
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1.5px var(--accent);
+  }
+
+  /* ---------- quick links ---------- */
+  #tileGrid {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+    grid-auto-rows: min-content;
+    align-content: start;
+    gap: 8px;
+    overflow: hidden;
+  }
+  .tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 6px 10px;
+    font: inherit;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  }
+  .tile:hover {
+    transform: translateY(-3px);
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.13);
+  }
+  .tile:active { transform: translateY(-1px); }
+  .tile-icon { font-size: 24px; line-height: 1; }
+  .tile-label {
+    font-size: 11px;
+    color: var(--muted);
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 1100px) {
+    #page { padding-left: 24px; }
+  }
+  @media (max-width: 900px) {
+    #clockTime { font-size: 30px; }
+    #grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  }
+</style>
+</head>
+<body>
+<div id="page">
+
+  <header class="card" id="headerBar">
+    <div id="clockWrap" hidden>
+      <div id="clockTime">--:--</div>
+      <div id="clockDate">&nbsp;</div>
+    </div>
+    <div id="searchWrap" hidden>
+      <input id="searchInput" type="text" placeholder="Search the web..."
+             autocomplete="off" spellcheck="false" aria-label="Search the web">
+    </div>
+  </header>
+
+  <main id="grid" hidden>
+
+    <section class="card widget" id="weatherCard" hidden>
+      <div class="widget-head">
+        <span class="widget-title">Weather</span>
+        <span class="dot" id="weatherDot"></span>
+      </div>
+      <div id="weatherBody">
+        <div class="wx-unavail">loading&hellip;</div>
+      </div>
+    </section>
+
+    <section class="card widget" id="statsCard" hidden>
+      <div class="widget-head">
+        <span class="widget-title">System</span>
+        <span class="dot" id="statsDot"></span>
+      </div>
+      <div id="statsBody">
+        <div class="stat-row">
+          <div class="stat-top"><span class="stat-label">CPU</span><span class="stat-val" id="cpuVal">&mdash;</span></div>
+          <div class="bar"><div class="fill" id="cpuFill"></div></div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-top"><span class="stat-label">RAM</span><span class="stat-val" id="ramVal">&mdash;</span></div>
+          <div class="bar"><div class="fill" id="ramFill"></div></div>
+        </div>
+        <div id="diskRows"></div>
+        <div id="statsFoot">
+          <span class="chip" id="netChip">&darr; &mdash; &nbsp; &uarr; &mdash;</span>
+          <span class="chip" id="upChip">&#9201;&#65039; &mdash;</span>
+          <span class="chip" id="battChip" hidden></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card widget" id="calCard" hidden>
+      <div class="widget-head">
+        <span class="widget-title">Calendar</span>
+        <span></span>
+      </div>
+      <div class="cal-nav">
+        <button class="cal-btn" id="calPrev" aria-label="Previous month">&lsaquo;</button>
+        <div class="cal-title" id="calTitle" title="Back to today"></div>
+        <button class="cal-btn" id="calNext" aria-label="Next month">&rsaquo;</button>
+      </div>
+      <div id="calGrid"></div>
+    </section>
+
+    <section class="card widget" id="linksCard" hidden>
+      <div class="widget-head">
+        <span class="widget-title">Quick Links</span>
+        <span></span>
+      </div>
+      <div id="tileGrid"></div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ---------------- host bridge (WebView2) ---------------- */
+  var hasHost = !!(window.chrome && window.chrome.webview &&
+                   typeof window.chrome.webview.postMessage === "function");
+
+  function post(msg) {
+    if (!hasHost) return;
+    try { window.chrome.webview.postMessage(msg); } catch (e) { /* ignore */ }
+  }
+
+  if (hasHost && typeof window.chrome.webview.addEventListener === "function") {
+    window.chrome.webview.addEventListener("message", function (e) {
+      var m = e.data;
+      if (typeof m === "string") {
+        try { m = JSON.parse(m); } catch (err) { return; }
+      }
+      if (m && m.type === "stats") onStats(m);
+    });
+  }
+
+  /* ---------------- config ---------------- */
+  var DEFAULTS = {
+    background: "",
+    clock: true,
+    tiles: [],
+    widgets: {
+      search: true,
+      weather: { enabled: false, city: "", unit: "c" },
+      stats: true,
+      calendar: true,
+      links: true
+    }
+  };
+
+  function normalizeConfig(raw) {
+    var d = JSON.parse(JSON.stringify(DEFAULTS));
+    if (!raw || typeof raw !== "object") return d;
+    if (typeof raw.background === "string") d.background = raw.background;
+    if (typeof raw.clock === "boolean") d.clock = raw.clock;
+    if (Array.isArray(raw.tiles)) {
+      d.tiles = raw.tiles.filter(function (t) {
+        return t && typeof t === "object" && typeof t.target === "string" && t.target.trim() !== "";
+      });
+    }
+    var w = raw.widgets;
+    if (w && typeof w === "object") {
+      if (typeof w.search === "boolean") d.widgets.search = w.search;
+      if (typeof w.stats === "boolean") d.widgets.stats = w.stats;
+      if (typeof w.calendar === "boolean") d.widgets.calendar = w.calendar;
+      if (typeof w.links === "boolean") d.widgets.links = w.links;
+      var wx = w.weather;
+      if (wx && typeof wx === "object") {
+        if (typeof wx.enabled === "boolean") d.widgets.weather.enabled = wx.enabled;
+        if (typeof wx.city === "string") d.widgets.weather.city = wx.city;
+        if (wx.unit === "f" || wx.unit === "c") d.widgets.weather.unit = wx.unit;
+      }
+    }
+    return d;
+  }
+
+  function loadConfig() {
+    return fetch("/launcher.json", { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error("http " + r.status); return r.json(); })
+      .then(normalizeConfig)
+      .catch(function () { return normalizeConfig(null); });
+  }
+
+  /* ---------------- background ---------------- */
+  function applyBackground(bg) {
+    if (typeof bg !== "string") return;
+    bg = bg.trim();
+    if (!/^https?:\/\//i.test(bg)) return; // keep the default gradient
+    var safe = encodeURI(bg).replace(/["'\\]/g, "");
+    document.body.style.backgroundImage =
+      'linear-gradient(rgba(8,10,22,0.40), rgba(10,12,26,0.58)), url("' + safe + '")';
+  }
+
+  /* ---------------- clock ---------------- */
+  var lastClock = "", lastDay = "";
+  function tickClock(showClock) {
+    var n = new Date();
+    var hh = String(n.getHours()).padStart(2, "0");
+    var mm = String(n.getMinutes()).padStart(2, "0");
+    var t = hh + ":" + mm;
+    if (showClock && t !== lastClock) {
+      lastClock = t;
+      $("clockTime").textContent = t;
+      $("clockDate").textContent = n.toLocaleDateString(undefined,
+        { weekday: "long", month: "long", day: "numeric" });
+    }
+    var day = n.toDateString();
+    if (day !== lastDay) {           // midnight rollover: refresh today's ring
+      lastDay = day;
+      if (calVisible) renderCalendar();
+    }
+  }
+
+  /* ---------------- search ---------------- */
+  function initSearch() {
+    var input = $("searchInput");
+    input.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      var q = input.value.trim();
+      if (!q) return;
+      post({ action: "open",
+             target: "https://www.google.com/search?q=" + encodeURIComponent(q) });
+      input.value = "";
+    });
+  }
+
+  /* ---------------- weather ---------------- */
+  var GEO_KEY = "wr_geo";
+
+  function wmoEmoji(c) {
+    c = Number(c);
+    if (c === 0) return "\u2600\uFE0F";                    // ☀️
+    if (c === 1 || c === 2) return "\uD83C\uDF24\uFE0F";   // 🌤️
+    if (c === 3) return "\u2601\uFE0F";                    // ☁️
+    if (c === 45 || c === 48) return "\uD83C\uDF2B\uFE0F"; // 🌫️
+    if (c >= 51 && c <= 57) return "\uD83C\uDF26\uFE0F";   // 🌦️
+    if (c >= 61 && c <= 67) return "\uD83C\uDF27\uFE0F";   // 🌧️
+    if (c >= 71 && c <= 77) return "\uD83C\uDF28\uFE0F";   // 🌨️
+    if (c >= 80 && c <= 82) return "\uD83C\uDF27\uFE0F";   // 🌧️
+    if (c === 85 || c === 86) return "\uD83C\uDF28\uFE0F"; // 🌨️
+    if (c >= 95 && c <= 99) return "\u26C8\uFE0F";         // ⛈️
+    return "\uD83C\uDF21\uFE0F";                           // 🌡️
+  }
+
+  function geocode(city) {
+    var cached = null;
+    try { cached = JSON.parse(localStorage.getItem(GEO_KEY) || "null"); } catch (e) {}
+    if (cached && cached.city === city &&
+        isFinite(cached.lat) && isFinite(cached.lon)) {
+      return Promise.resolve(cached);
+    }
+    var url = "https://geocoding-api.open-meteo.com/v1/search?name=" +
+              encodeURIComponent(city) + "&count=1";
+    return fetch(url)
+      .then(function (r) { if (!r.ok) throw new Error("geo http"); return r.json(); })
+      .then(function (j) {
+        var hit = j && j.results && j.results[0];
+        if (!hit) throw new Error("city not found");
+        var g = { city: city, lat: hit.latitude, lon: hit.longitude,
+                  name: hit.name || city };
+        try { localStorage.setItem(GEO_KEY, JSON.stringify(g)); } catch (e) {}
+        return g;
+      });
+  }
+
+  function fetchForecast(g, unit) {
+    var url = "https://api.open-meteo.com/v1/forecast" +
+      "?latitude=" + g.lat + "&longitude=" + g.lon +
+      "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m" +
+      "&daily=temperature_2m_max,temperature_2m_min,weather_code" +
+      "&timezone=auto&forecast_days=5";
+    if (unit === "f") url += "&temperature_unit=fahrenheit&wind_speed_unit=mph";
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error("wx http"); return r.json();
+    });
+  }
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+
+  function renderWeather(g, data, unit) {
+    var body = $("weatherBody");
+    body.innerHTML = "";
+    var cur = data.current || {};
+    var windUnit = unit === "f" ? "mph" : "km/h";
+
+    var now = el("div", "wx-now");
+    now.appendChild(el("div", "wx-temp",
+      (isFinite(cur.temperature_2m) ? Math.round(cur.temperature_2m) : "-") + "\u00B0"));
+    now.appendChild(el("div", "wx-emoji", wmoEmoji(cur.weather_code)));
+    var meta = el("div", "wx-meta");
+    meta.appendChild(el("div", "wx-city", g.name));
+    meta.appendChild(el("div", "wx-line",
+      "\uD83D\uDCA7 " + (isFinite(cur.relative_humidity_2m) ? Math.round(cur.relative_humidity_2m) : "-") + "%" +
+      "  \u00B7  \uD83D\uDCA8 " + (isFinite(cur.wind_speed_10m) ? Math.round(cur.wind_speed_10m) : "-") + " " + windUnit));
+    now.appendChild(meta);
+    body.appendChild(now);
+
+    var daily = data.daily || {};
+    var times = daily.time || [];
+    var strip = el("div", "wx-days");
+    for (var i = 0; i < Math.min(5, times.length); i++) {
+      var day = el("div", "wx-day");
+      var dt = new Date(times[i] + "T12:00:00");
+      var initial = dt.toLocaleDateString(undefined, { weekday: "narrow" });
+      day.appendChild(el("div", "wx-d1", initial));
+      day.appendChild(el("div", "wx-d2", wmoEmoji((daily.weather_code || [])[i])));
+      var hi = (daily.temperature_2m_max || [])[i];
+      var lo = (daily.temperature_2m_min || [])[i];
+      var line = el("div", "wx-d3", (isFinite(hi) ? Math.round(hi) : "-") + "\u00B0 ");
+      var loSpan = el("span", "lo", (isFinite(lo) ? Math.round(lo) : "-") + "\u00B0");
+      line.appendChild(loSpan);
+      day.appendChild(line);
+      strip.appendChild(day);
+    }
+    body.appendChild(strip);
+  }
+
+  function weatherUnavailable() {
+    $("weatherBody").innerHTML = "";
+    $("weatherBody").appendChild(el("div", "wx-unavail", "weather unavailable"));
+    $("weatherDot").classList.remove("live");
+  }
+
+  function startWeather(wx) {
+    var cycle = function () {
+      geocode(wx.city.trim())
+        .then(function (g) {
+          return fetchForecast(g, wx.unit).then(function (data) {
+            renderWeather(g, data, wx.unit);
+            $("weatherDot").classList.add("live");
+          });
+        })
+        .catch(function () { weatherUnavailable(); }); // quiet; retry next cycle
+    };
+    cycle();
+    setInterval(cycle, 30 * 60 * 1000);
+  }
+
+  /* ---------------- system stats ---------------- */
+  var lastStatsAt = 0;
+  var diskSig = "";
+  var diskRefs = {}; // letter -> { val, fill }
+
+  function pct(v) {
+    v = Number(v);
+    if (!isFinite(v)) return 0;
+    return Math.max(0, Math.min(100, v));
+  }
+
+  function setBar(fillEl, p) {
+    fillEl.style.width = p.toFixed(1) + "%";
+    fillEl.classList.toggle("hot", p >= 90);
+  }
+
+  function fmtRate(kbps) {
+    kbps = Number(kbps);
+    if (!isFinite(kbps) || kbps < 0) kbps = 0;
+    if (kbps >= 1000) return (kbps / 1024).toFixed(1) + " MB/s";
+    return Math.round(kbps) + " KB/s";
+  }
+
+  function fmtUptime(secs) {
+    var s = Math.max(0, Math.floor(Number(secs) || 0));
+    var d = Math.floor(s / 86400);
+    var h = Math.floor((s % 86400) / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    if (d > 0) return d + "d " + h + "h";
+    if (h > 0) return h + "h " + m + "m";
+    return m + "m";
+  }
+
+  function buildDiskRows(disks) {
+    var wrap = $("diskRows");
+    wrap.innerHTML = "";
+    diskRefs = {};
+    wrap.style.display = "flex";
+    wrap.style.flexDirection = "column";
+    wrap.style.gap = "11px";
+    disks.forEach(function (dk) {
+      var row = el("div", "stat-row");
+      var top = el("div", "stat-top");
+      top.appendChild(el("span", "stat-label", String(dk.letter || "?") + ":"));
+      var val = el("span", "stat-val", "\u2014");
+      top.appendChild(val);
+      row.appendChild(top);
+      var bar = el("div", "bar");
+      var fill = el("div", "fill");
+      bar.appendChild(fill);
+      row.appendChild(bar);
+      wrap.appendChild(row);
+      diskRefs[String(dk.letter)] = { val: val, fill: fill };
+    });
+  }
+
+  function onStats(m) {
+    lastStatsAt = Date.now();
+    $("statsDot").classList.add("live");
+
+    // CPU
+    var cpu = pct(m.cpu_pct);
+    $("cpuVal").textContent = Math.round(cpu) + "%";
+    setBar($("cpuFill"), cpu);
+
+    // RAM
+    var used = Number(m.mem_used_mb), total = Number(m.mem_total_mb);
+    if (isFinite(used) && isFinite(total) && total > 0) {
+      $("ramVal").textContent =
+        (used / 1024).toFixed(1) + " / " + (total / 1024).toFixed(1) + " GiB";
+      setBar($("ramFill"), pct(used / total * 100));
+    }
+
+    // Disks
+    var disks = Array.isArray(m.disk) ? m.disk.filter(function (dk) {
+      return dk && typeof dk === "object";
+    }) : [];
+    var sig = disks.map(function (dk) { return dk.letter; }).join("|");
+    if (sig !== diskSig) { diskSig = sig; buildDiskRows(disks); }
+    disks.forEach(function (dk) {
+      var ref = diskRefs[String(dk.letter)];
+      if (!ref) return;
+      var free = Number(dk.free_gb), tot = Number(dk.total_gb);
+      if (isFinite(free) && isFinite(tot) && tot > 0) {
+        ref.val.textContent = Math.round(free) + " GB free";
+        setBar(ref.fill, pct((tot - free) / tot * 100));
+      }
+    });
+
+    // Network / uptime / battery
+    $("netChip").textContent =
+      "\u2193 " + fmtRate(m.net_rx_kbps) + "   \u2191 " + fmtRate(m.net_tx_kbps);
+    $("upChip").textContent = "\u23F1\uFE0F " + fmtUptime(m.uptime_secs);
+
+    var batt = $("battChip");
+    if (m.battery_pct !== null && m.battery_pct !== undefined && isFinite(Number(m.battery_pct))) {
+      batt.hidden = false;
+      batt.textContent = (m.on_ac ? "\uD83D\uDD0C " : "\uD83D\uDD0B ") +
+                         Math.round(pct(m.battery_pct)) + "%";
+    } else {
+      batt.hidden = true;
+    }
+  }
+
+  function startStats() {
+    var poll = function () {
+      post({ action: "get_stats" });
+      if (Date.now() - lastStatsAt > 6000) $("statsDot").classList.remove("live");
+    };
+    poll();
+    setInterval(poll, 2000);
+  }
+
+  /* ---------------- calendar ---------------- */
+  var calVisible = false;
+  var calY, calM; // displayed year/month
+
+  function renderCalendar() {
+    var grid = $("calGrid");
+    grid.innerHTML = "";
+
+    var first = new Date(calY, calM, 1);
+    $("calTitle").textContent = first.toLocaleDateString(undefined,
+      { month: "long", year: "numeric" });
+
+    ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].forEach(function (h) {
+      grid.appendChild(el("div", "cal-h", h));
+    });
+
+    var startDow = first.getDay();                       // 0 = Sunday
+    var start = new Date(calY, calM, 1 - startDow);      // first visible cell
+    var today = new Date();
+
+    for (var i = 0; i < 42; i++) {
+      var d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+      var cell = el("div", "cal-d", String(d.getDate()));
+      if (d.getMonth() !== calM) cell.classList.add("dim");
+      if (d.getFullYear() === today.getFullYear() &&
+          d.getMonth() === today.getMonth() &&
+          d.getDate() === today.getDate()) {
+        cell.classList.add("today");
+      }
+      grid.appendChild(cell);
+    }
+  }
+
+  function initCalendar() {
+    var now = new Date();
+    calY = now.getFullYear();
+    calM = now.getMonth();
+    $("calPrev").addEventListener("click", function () {
+      calM--; if (calM < 0) { calM = 11; calY--; } renderCalendar();
+    });
+    $("calNext").addEventListener("click", function () {
+      calM++; if (calM > 11) { calM = 0; calY++; } renderCalendar();
+    });
+    $("calTitle").addEventListener("click", function () {
+      var n = new Date(); calY = n.getFullYear(); calM = n.getMonth(); renderCalendar();
+    });
+    renderCalendar();
+  }
+
+  /* ---------------- quick links ---------------- */
+  function initLinks(tiles) {
+    var wrap = $("tileGrid");
+    tiles.forEach(function (t) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "tile";
+      b.title = (typeof t.label === "string" && t.label) ? t.label : t.target;
+      b.appendChild(el("div", "tile-icon",
+        (typeof t.icon === "string" && t.icon) ? t.icon : "\uD83D\uDD17"));
+      b.appendChild(el("div", "tile-label",
+        (typeof t.label === "string" && t.label) ? t.label : t.target));
+      b.addEventListener("click", function () {
+        post({ action: "open",
+               target: String(t.target),
+               args: (typeof t.args === "string") ? t.args : "" });
+      });
+      wrap.appendChild(b);
+    });
+  }
+
+  /* ---------------- boot ---------------- */
+  loadConfig().then(function (cfg) {
+    applyBackground(cfg.background);
+
+    // Header: clock + search (bar always shown)
+    $("clockWrap").hidden = !cfg.clock;
+    $("searchWrap").hidden = !cfg.widgets.search;
+    if (cfg.widgets.search) initSearch();
+    tickClock(cfg.clock);
+    setInterval(function () { tickClock(cfg.clock); }, 1000);
+
+    // Widgets
+    var showWeather = !!(cfg.widgets.weather.enabled && cfg.widgets.weather.city.trim());
+    var showStats = !!cfg.widgets.stats;
+    var showCal = !!cfg.widgets.calendar;
+    var showLinks = !!(cfg.widgets.links && cfg.tiles.length > 0);
+
+    $("weatherCard").hidden = !showWeather;
+    $("statsCard").hidden = !showStats;
+    $("calCard").hidden = !showCal;
+    $("linksCard").hidden = !showLinks;
+    $("grid").hidden = !(showWeather || showStats || showCal || showLinks);
+
+    if (showWeather) startWeather(cfg.widgets.weather);
+    if (showStats) startStats();
+    if (showCal) { calVisible = true; initCalendar(); }
+    if (showLinks) initLinks(cfg.tiles);
+  });
+})();
+</script>
+</body>
+</html>
