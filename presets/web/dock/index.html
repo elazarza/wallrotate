@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WallRotate — Dock</title>
+<style>
+  :root {
+    --tile: clamp(48px, 3.6vw, 84px);
+    --dock-bottom: 80px;
+    --ink: rgba(240, 242, 247, 0.92);
+    --ink-dim: rgba(240, 242, 247, 0.55);
+    --font: "Segoe UI Variable Display", "Segoe UI", -apple-system, system-ui, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+    cursor: default;
+    background: #0c0d11;
+    font-family: var(--font);
+    color: var(--ink);
+  }
+
+  /* ---------- background layers ---------- */
+
+  #bg-image {
+    position: fixed;
+    inset: 0;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    z-index: 0;
+  }
+  #bg-image.on { opacity: 1; }
+
+  /* scrim over a configured image so the dock + clock stay legible */
+  #scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: none;
+    background:
+      linear-gradient(to top,
+        rgba(6, 7, 10, 0.72) 0%,
+        rgba(6, 7, 10, 0.38) 22%,
+        rgba(6, 7, 10, 0.14) 45%,
+        rgba(6, 7, 10, 0.10) 70%,
+        rgba(6, 7, 10, 0.30) 100%);
+  }
+  #scrim.on { display: block; }
+
+  /* pure-CSS ambience when no image is configured */
+  #ambience {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    background:
+      radial-gradient(90vw 55vh at 50% 108%, rgba(84, 110, 190, 0.16), rgba(84, 110, 190, 0) 62%),
+      radial-gradient(120vw 90vh at 50% -30%, rgba(46, 52, 74, 0.35), rgba(46, 52, 74, 0) 70%),
+      linear-gradient(180deg, #101218 0%, #0c0d11 55%, #0a0b0f 100%);
+  }
+  #ambience.off { display: none; }
+
+  /* faint breathing glow behind the dock — opacity only, slow */
+  #glow {
+    position: fixed;
+    left: 50%;
+    bottom: 0;
+    width: min(70vw, 1100px);
+    height: 34vh;
+    transform: translateX(-50%);
+    z-index: 1;
+    pointer-events: none;
+    background: radial-gradient(closest-side at 50% 100%,
+      rgba(118, 146, 235, 0.20),
+      rgba(118, 146, 235, 0.07) 55%,
+      rgba(118, 146, 235, 0) 100%);
+    animation: breathe 14s ease-in-out infinite alternate;
+  }
+  #glow.off { display: none; }
+
+  @keyframes breathe {
+    from { opacity: 0.45; }
+    to   { opacity: 1; }
+  }
+
+  /* ---------- clock (small, top-right) ---------- */
+
+  #clock {
+    position: fixed;
+    top: clamp(24px, 3vh, 48px);
+    right: clamp(28px, 2.5vw, 64px);
+    z-index: 3;
+    text-align: right;
+    pointer-events: none;
+    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+  }
+  #clock .time {
+    font-size: clamp(28px, 2.6vw, 54px);
+    font-weight: 300;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  #clock .date {
+    margin-top: 0.45em;
+    font-size: clamp(12px, 0.85vw, 17px);
+    font-weight: 400;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  #clock.hidden { display: none; }
+
+  /* ---------- hint (fetch failed / no tiles) ---------- */
+
+  #hint {
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--dock-bottom) + 24px);
+    transform: translateX(-50%);
+    z-index: 3;
+    display: none;
+    padding: 12px 22px;
+    border-radius: 999px;
+    background: rgba(24, 26, 32, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: clamp(12px, 0.9vw, 16px);
+    letter-spacing: 0.05em;
+    color: var(--ink-dim);
+    white-space: nowrap;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+  }
+  #hint.on { display: block; }
+
+  /* ---------- dock ---------- */
+
+  #dock {
+    position: fixed;
+    left: 50%;
+    bottom: var(--dock-bottom);
+    transform: translateX(-50%);
+    z-index: 4;
+    display: none;
+    align-items: flex-end;
+    gap: clamp(6px, 0.5vw, 12px);
+    padding: clamp(8px, 0.6vw, 14px) clamp(10px, 0.8vw, 18px);
+    max-width: calc(100vw - 48px);
+    border-radius: clamp(18px, 1.3vw, 28px);
+    background: rgba(28, 30, 37, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-bottom-color: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(18px) saturate(1.35);
+    -webkit-backdrop-filter: blur(18px) saturate(1.35);
+    box-shadow:
+      0 18px 50px rgba(0, 0, 0, 0.55),
+      0 4px 14px rgba(0, 0, 0, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+  #dock.on { display: flex; }
+
+  .tile {
+    position: relative;
+    width: var(--tile);
+    height: var(--tile);
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.3, 1.2);
+    will-change: transform;
+  }
+  .tile:hover  { transform: translateY(-12px) scale(1.16); z-index: 2; }
+  .tile:active { transform: translateY(-5px) scale(1.04); transition-duration: 0.08s; }
+
+  .tile .plate {
+    width: 88%;
+    height: 88%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 24%;
+    background: linear-gradient(160deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.03) 55%, rgba(0, 0, 0, 0.08));
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  }
+
+  .tile .icon {
+    font-size: calc(var(--tile) * 0.52);
+    line-height: 1;
+    filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.4));
+    pointer-events: none;
+  }
+
+  .tile .label {
+    position: absolute;
+    bottom: calc(100% + 14px);
+    left: 50%;
+    transform: translate(-50%, 8px);
+    opacity: 0;
+    pointer-events: none;
+    padding: 6px 14px;
+    border-radius: 10px;
+    background: rgba(18, 19, 24, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+    font-size: clamp(11px, 0.8vw, 15px);
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    color: var(--ink);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+  }
+  .tile:hover .label { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+
+  <div id="bg-image"></div>
+  <div id="ambience"></div>
+  <div id="scrim"></div>
+  <div id="glow"></div>
+
+  <div id="clock">
+    <div class="time" id="clock-time">--:--</div>
+    <div class="date" id="clock-date"></div>
+  </div>
+
+  <div id="hint">edit launcher.json in the WallRotate tray menu</div>
+
+  <div id="dock"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var dockEl  = document.getElementById("dock");
+  var hintEl  = document.getElementById("hint");
+  var clockEl = document.getElementById("clock");
+  var glowEl  = document.getElementById("glow");
+  var tileCount = 0;
+
+  /* ---------- clock ---------- */
+
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+
+  function tick() {
+    var d = new Date();
+    document.getElementById("clock-time").textContent =
+      pad(d.getHours()) + ":" + pad(d.getMinutes());
+    document.getElementById("clock-date").textContent =
+      d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+  }
+  tick();
+  setInterval(tick, 1000);
+
+  /* ---------- launching ---------- */
+
+  function launch(tile) {
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage({
+        action: "open",
+        target: tile.target,
+        args: tile.args || ""
+      });
+    } else {
+      console.log(tile);
+    }
+  }
+
+  /* ---------- dock sizing (shrink tiles if the bar would overflow) ---------- */
+
+  function fitDock() {
+    if (!tileCount) return;
+    var root = document.documentElement;
+    root.style.removeProperty("--tile");
+    var base = parseFloat(getComputedStyle(root).getPropertyValue("--tile"));
+    var avail = window.innerWidth - 96;               /* side breathing room */
+    var perTile = (avail - 36) / tileCount - 10;      /* padding + gaps, roughly */
+    if (perTile < base) {
+      root.style.setProperty("--tile", Math.max(40, Math.floor(perTile)) + "px");
+    }
+  }
+  window.addEventListener("resize", fitDock);
+
+  /* ---------- rendering ---------- */
+
+  function showHint() {
+    hintEl.classList.add("on");
+  }
+
+  function renderTiles(tiles) {
+    tiles.forEach(function (tile) {
+      if (!tile || typeof tile.target !== "string") return;
+
+      var t = document.createElement("div");
+      t.className = "tile";
+      t.title = "";
+
+      var label = document.createElement("span");
+      label.className = "label";
+      label.textContent = String(tile.label || tile.target);
+
+      var plate = document.createElement("div");
+      plate.className = "plate";
+
+      var icon = document.createElement("span");
+      icon.className = "icon";
+      icon.textContent = (typeof tile.icon === "string" && tile.icon) ? tile.icon : "🔷";
+
+      plate.appendChild(icon);
+      t.appendChild(label);
+      t.appendChild(plate);
+      t.addEventListener("click", function () { launch(tile); });
+
+      dockEl.appendChild(t);
+      tileCount++;
+    });
+
+    if (tileCount > 0) {
+      dockEl.classList.add("on");
+      fitDock();
+    } else {
+      showHint();
+    }
+  }
+
+  function applyBackground(url) {
+    var img = document.getElementById("bg-image");
+    img.style.backgroundImage = "url(\"" + String(url).replace(/"/g, "%22") + "\")";
+    img.classList.add("on");
+    document.getElementById("scrim").classList.add("on");
+    document.getElementById("ambience").classList.add("off");
+    glowEl.classList.add("off");
+  }
+
+  function applyConfig(cfg) {
+    if (!cfg || typeof cfg !== "object") { showHint(); return; }
+
+    if (cfg.clock === false) clockEl.classList.add("hidden");
+
+    if (typeof cfg.background === "string" && cfg.background.length > 0) {
+      applyBackground(cfg.background);
+    }
+
+    if (Array.isArray(cfg.tiles) && cfg.tiles.length > 0) {
+      renderTiles(cfg.tiles);
+    } else {
+      showHint();
+    }
+  }
+
+  /* ---------- boot ---------- */
+
+  fetch("/launcher.json", { cache: "no-store" })
+    .then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(applyConfig)
+    .catch(function () { showHint(); });
+})();
+</script>
+</body>
+</html>

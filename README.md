@@ -24,6 +24,12 @@ nobody can see it.
   the `animated` folder), a Rotate submenu that pins individual screens out of
   the rotation, rescan, open wallpaper folder, edit and reload settings,
   start with Windows, exit.
+- **Clickable web wallpaper** — an HTML launcher page rendered on the desktop
+  (below the icons) with tiles that open apps, folders, and URLs on click.
+  Three built-in presets (grid, dock, minimal), a clock, optional background
+  image from your library, all configured through one `launcher.json` — or
+  point it at your own HTML page. Rendered by the Edge WebView2 runtime that
+  ships with Windows 11.
 - **Scriptable**: `--next` `--prev` `--screen N` `--rescan` `--quit` talk to
   the running instance; `--install` / `--uninstall` manage the login entry.
 - **Pauses whenever it is invisible** — a window covering the screen,
@@ -127,6 +133,26 @@ Direct2D device context bound to the swap chain's back buffer; video goes
 through Media Foundation's `IMFMediaEngine`, hardware-decoded, muted and
 looped. Pausing pauses the *engine*, so a covered or locked screen stops
 decoding rather than just skipping presentation.
+
+**The clickable web wallpaper** rides the same surface: a WebView2 controller
+is parented into the `WallRotateAnimSurface` for that screen, so the page
+composites below the icons like any other animated background. Pages are
+served through `SetVirtualHostNameToFolderMapping` as `https://wallpaper.local/`
+(a plain `file://` page could not `fetch()` its own `launcher.json`), and the
+wallpaper library is mapped as `https://backgrounds.local/` so a tile page can
+use any image you already have. Tiles post
+`{action:"open", target, args}` via `window.chrome.webview.postMessage`; the
+host verifies the message's origin and hands the target to `ShellExecute`.
+Navigation anywhere off those two hosts is cancelled (external links open in
+your default browser), so the wallpaper cannot drift into being a web browser.
+
+Clicks need help: the desktop icon layer sits above the page and eats every
+mouse event. While a web surface exists (and `web_interactive` is on) a
+low-level mouse hook watches for clicks that land on the bare desktop —
+`WindowFromPoint` resolving to the shell's own windows — and re-posts them to
+the WebView2 child under that point. The hook is removed the moment the web
+wallpaper is turned off. When the screen is covered the controller is hidden
+and Chromium's renderer is suspended, same as the video decoder.
 
 ### Knowing when nobody is looking
 

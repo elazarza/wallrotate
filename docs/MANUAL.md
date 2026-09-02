@@ -13,10 +13,11 @@ animation actually costs, and what to do when something does not work.
 - [2. Setting up your wallpaper folder](#2-setting-up-your-wallpaper-folder)
 - [3. The tray menu](#3-the-tray-menu)
 - [4. The hotkey](#4-the-hotkey)
-- [5. Command line reference](#5-command-line-reference)
-- [6. Settings reference](#6-settings-reference)
-- [7. Performance and GPU cost](#7-performance-and-gpu-cost)
-- [8. Troubleshooting](#8-troubleshooting)
+- [5. The clickable web launcher](#5-the-clickable-web-launcher)
+- [6. Command line reference](#6-command-line-reference)
+- [7. Settings reference](#7-settings-reference)
+- [8. Performance and GPU cost](#8-performance-and-gpu-cost)
+- [9. Troubleshooting](#9-troubleshooting)
 
 ---
 
@@ -72,7 +73,7 @@ It then tells you the install folder is safe to delete:
 ```
 
 Your settings live separately in `%APPDATA%\WallRotate` (see
-[Settings reference](#6-settings-reference)); delete that folder too if you
+[Settings reference](#7-settings-reference)); delete that folder too if you
 want nothing left behind.
 
 ---
@@ -127,7 +128,7 @@ in the library. The rule is:
 - **Dot-folders are always ignored** by the scan, wherever they are. This is
   deliberate: `animated\.originals` is the conventional place to keep
   full-resolution source clips that you have transcoded down for wallpaper use
-  (see [Performance](#7-performance-and-gpu-cost)) — the scanner will never
+  (see [Performance](#8-performance-and-gpu-cost)) — the scanner will never
   pick them up. The `.git` folder of a cloned wallpaper repo is skipped for
   the same reason.
 
@@ -264,6 +265,14 @@ Pins apply to **rotation only**. Changing the animated mode or the source
 types still applies to every screen, so turning animation off turns it off
 everywhere, pinned or not.
 
+### Web launcher ▸
+
+Everything about the clickable web wallpaper: pick a preset (Grid / Dock /
+Minimal) or turn it **Off**, choose which screens show it, toggle
+**Clickable (launch on click)**, and **Edit launcher tiles...** to open
+`launcher.json`. Covered in full in
+[section 5](#5-the-clickable-web-launcher).
+
 ### The rest
 
 | Item | Effect |
@@ -307,11 +316,96 @@ hotkey = "win+pageup"
 ```
 
 If another application already owns the combination, registration fails; see
-[Troubleshooting](#8-troubleshooting).
+[Troubleshooting](#9-troubleshooting).
 
 ---
 
-## 5. Command line reference
+## 5. The clickable web launcher
+
+The web launcher turns a screen's background into an HTML page with tiles that
+open apps, folders, and URLs when you click them — rendered below the desktop
+icons like any other WallRotate background. It uses the Edge WebView2 runtime
+that ships with Windows 11, so there is nothing extra to install.
+
+### Turning it on
+
+Tray ▸ **Web launcher ▸** and pick a design:
+
+| Preset | Look |
+| --- | --- |
+| **Grid** | A centred clock with a row of labelled tiles beneath it. |
+| **Dock** | A macOS-style dock of tiles along the bottom edge, clock above. |
+| **Minimal** | Small text links in a corner; the quietest of the three. |
+
+The same submenu chooses **which screens** show the launcher (all, or ticked
+individually — the other screens keep their normal rotating wallpapers), and
+whether it is **Clickable**. With *Clickable* off the page is purely
+decorative and WallRotate does not touch mouse input at all.
+
+### Configuring the tiles
+
+Pick **Edit launcher tiles...** from the submenu (or open
+`%APPDATA%\WallRotate\web\launcher.json` yourself). All three presets read
+this one file:
+
+```json
+{
+  "background": "",
+  "clock": true,
+  "tiles": [
+    { "icon": "🗒️", "label": "Notepad",   "target": "notepad.exe" },
+    { "icon": "📁", "label": "Downloads",  "target": "%USERPROFILE%\\Downloads" },
+    { "icon": "🌐", "label": "GitHub",     "target": "https://github.com" },
+    { "icon": "🎮", "label": "Steam",      "target": "C:\\Program Files (x86)\\Steam\\steam.exe", "args": "-silent" }
+  ]
+}
+```
+
+- `target` is anything the Windows shell can open: an exe on the PATH, a full
+  path to a program or document, a folder, a URL, or a `ms-settings:` link.
+  `%ENV%` variables are expanded.
+- `args` (optional) is passed to the program as its command line.
+- `icon` is an emoji (or any short text); `label` is the caption.
+- `background` may be empty (each preset has its own look), or an image from
+  your wallpaper library via the `https://backgrounds.local/` mapping — e.g.
+  `"https://backgrounds.local/nature/forest.jpg"` for
+  `<wallpaper_dir>\nature\forest.jpg`.
+- `clock` shows or hides the clock on presets that have one.
+
+Changes take effect the next time the page loads — pick the preset again in
+the tray menu, or **Reload settings**.
+
+### Using your own page
+
+Set `web_wallpaper` in `config.toml` to a full path to your own `.html` file.
+Its folder is served as `https://wallpaper.local/`, and a `launcher.json`
+beside it is what `fetch('/launcher.json')` returns. Your page launches things
+by posting a message:
+
+```js
+window.chrome.webview.postMessage({ action: "open", target: "notepad.exe", args: "" });
+```
+
+Keep the left ~150 px and the bottom ~90 px free if you use desktop icons or
+a taskbar — the presets do.
+
+Two safety properties worth knowing: the host only accepts messages from the
+page it loaded (`wallpaper.local`), and any navigation away from your local
+page is cancelled — external links open in your default browser instead of
+inside the wallpaper.
+
+### What it costs
+
+WebView2 is Chromium, so the launcher brings the standard set of helper
+processes (~7 processes, ~400 MB working set for two screens, mostly shared
+memory). The presets animate with cheap CSS only; measured GPU load is a few
+percent of the idle-clocked GPU, i.e. fractions of a watt. When a window
+covers the screen the page is hidden and its renderer suspended, exactly like
+the video decoder — a covered launcher costs nothing.
+
+---
+
+## 6. Command line reference
 
 | Verb | Effect |
 | --- | --- |
@@ -330,7 +424,7 @@ instance — they never start one.
 
 ---
 
-## 6. Settings reference
+## 7. Settings reference
 
 Settings live in `%APPDATA%\WallRotate\config.toml`. Edit the file (tray ▸
 **Edit settings...**), then pick **Reload settings**. The file self-upgrades:
@@ -353,7 +447,7 @@ edit that one.
 | `exclude_dirs` | `[]` | Folder names skipped entirely during the scan. |
 | `include_webp` | `false` | Use `.webp` still images. Windows only shows these when the WebP codec is installed. |
 | `max_fps` | `50` | Ceiling on GIF frame rate. A *safety valve*, not a throttle — set it below a GIF's native rate and frames get merged. Lowering it also thins stored frames, cutting memory as well as CPU. |
-| `video_max_fps` | `60` | Real cap on video *presentation* rate, and the main CPU lever for video. It does not reduce GPU decode cost (see [section 7](#7-performance-and-gpu-cost)). |
+| `video_max_fps` | `60` | Real cap on video *presentation* rate, and the main CPU lever for video. It does not reduce GPU decode cost (see [section 8](#8-performance-and-gpu-cost)). |
 | `include_video` | `true` | Play `.mp4` `.m4v` `.mov` `.wmv` `.avi` `.mkv` `.webm` as animated backgrounds. |
 | `include_gif` | `true` | Use `.gif` files as animated backgrounds. |
 | `max_gif_width` | `1280` | Upper bound on decoded GIF size. Bigger GIFs are downscaled at load; the GPU upscales for display. |
@@ -364,17 +458,20 @@ edit that one.
 | `pause_on_battery` | `false` | Stop rendering while on battery power. |
 | `start_with_windows` | `true` | Run at login. Mirrors the tray toggle. |
 | `notify_on_rotate` | `false` | Show a tray balloon after each rotation. |
+| `web_wallpaper` | `""` | The clickable web launcher: `""` (off), a preset name (`"grid"`, `"dock"`, `"minimal"`), or a full path to your own `.html` page. See [section 5](#5-the-clickable-web-launcher). |
+| `web_screens` | `[]` | Screen numbers (1-based) that show the web launcher. Empty = all screens. Screens not listed keep their normal rotating wallpapers. |
+| `web_interactive` | `true` | Forward desktop clicks into the page so tiles launch things. Off = purely decorative, and no mouse hook is installed. |
 
 Notes on the file itself:
 
 - A UTF-8 byte-order mark (which some Windows editors prepend) is tolerated.
 - If the file cannot be parsed, it is renamed to `config.toml.bad` so you can
   see what broke, and a fresh default file is written. See
-  [Troubleshooting](#8-troubleshooting).
+  [Troubleshooting](#9-troubleshooting).
 
 ---
 
-## 7. Performance and GPU cost
+## 8. Performance and GPU cost
 
 What each state costs (measured on Windows 11, two 1920×1080 screens — see
 the README for the full table):
@@ -422,7 +519,7 @@ Keep the original somewhere the scanner ignores — a dot-folder such as
 
 ---
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 ### Nothing animates
 

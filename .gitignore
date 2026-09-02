@@ -1,3 +1,6 @@
 /target
 debug.log
 *.toml.bad
+
+# Local-only agent handoff notes (machine-specific paths etc.)
+/CLAUDE.md

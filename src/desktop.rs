@@ -140,6 +140,8 @@ pub enum Animation {
     /// Held as a path: the player needs a window handle, so it is built after
     /// the surface window exists and rebuilt cheaply on recovery.
     Video(PathBuf),
+    /// A clickable HTML page hosted by WebView2 (see web.rs).
+    Web(crate::web::WebSpec),
 }
 
 thread_local! {
@@ -230,6 +232,15 @@ enum Media {
     /// Set between window creation and player construction.
     VideoPending(PathBuf),
     Video(Box<VideoPlayer>),
+    /// WebView2 startup is asynchronous end to end: the surface waits here
+    /// while the shared environment and then this window's controller are
+    /// created, and web_controller_ready() swaps in the finished page.
+    WebPending {
+        spec: crate::web::WebSpec,
+        requested: bool,
+        failed: bool,
+    },
+    Web(crate::web::WebWallpaper),
 }
 
 /// Frame-interval statistics, so "is it smooth?" has an answer with numbers.
@@ -473,13 +484,23 @@ unsafe extern "system" fn enum_worker(hwnd: HWND, lparam: LPARAM) -> BOOL {
 
 // ----------------------------------------------------------------- layer ---
 
+/// One live surface window: which monitor it belongs to, where it sits in
+/// screen coordinates, and whether it hosts a web page (the mouse hook needs
+/// to know which screen rects should forward clicks).
+struct SurfaceRec {
+    id: String,
+    hwnd: HWND,
+    rect: RECT,
+    web: bool,
+}
+
 #[derive(Default)]
 pub struct DesktopLayer {
     parent: Option<HWND>,
     /// Keyed by monitor device path so a single screen can be swapped without
     /// disturbing the others -- rebuilding everything restarts the video on
     /// screens the user did not ask to change.
-    surfaces: Vec<(String, HWND)>,
+    surfaces: Vec<SurfaceRec>,
 }
 
 impl DesktopLayer {
@@ -496,14 +517,24 @@ impl DesktopLayer {
     pub fn is_broken(&self) -> bool {
         self.surfaces
             .iter()
-            .any(|(_, h)| unsafe { !IsWindow(*h).as_bool() })
+            .any(|s| unsafe { !IsWindow(s.hwnd).as_bool() })
+    }
+
+    /// (monitor rect, surface hwnd) for every web surface -- the mouse hook's
+    /// forwarding table.
+    pub fn web_targets(&self) -> Vec<(RECT, isize)> {
+        self.surfaces
+            .iter()
+            .filter(|s| s.web)
+            .map(|s| (s.rect, s.hwnd.0 as isize))
+            .collect()
     }
 
     /// Tear down every surface and let the static wallpaper show through.
     pub fn clear(&mut self) {
-        for (_, hwnd) in self.surfaces.drain(..) {
+        for s in self.surfaces.drain(..) {
             unsafe {
-                let _ = DestroyWindow(hwnd);
+                let _ = DestroyWindow(s.hwnd);
             }
         }
         if let Some(parent) = self.parent {
@@ -530,10 +561,15 @@ impl DesktopLayer {
         // it. Build against each candidate until the surfaces actually come
         // out visible -- a hidden WorkerW accepts children that never draw.
         for parent in desktop_parent_candidates() {
-            let mut made: Vec<(String, HWND)> = Vec::new();
+            let mut made: Vec<SurfaceRec> = Vec::new();
             for (monitor, animation) in items {
                 match create_surface(parent, monitor, animation, cfg) {
-                    Some(hwnd) => made.push((monitor.id.clone(), hwnd)),
+                    Some(hwnd) => made.push(SurfaceRec {
+                        id: monitor.id.clone(),
+                        hwnd,
+                        rect: monitor.rect,
+                        web: matches!(animation, Animation::Web(_)),
+                    }),
                     None => crate::log::line(format!(
                         "  create_surface FAILED on parent {:?} for monitor {},{}",
                         parent.0, monitor.rect.left, monitor.rect.top
@@ -543,7 +579,7 @@ impl DesktopLayer {
             let all_visible = !made.is_empty()
                 && made
                     .iter()
-                    .all(|(_, h)| unsafe { IsWindowVisible(*h).as_bool() });
+                    .all(|s| unsafe { IsWindowVisible(s.hwnd).as_bool() });
             crate::log::line(format!(
                 "  parent {:?}: {} of {} surfaces made, all_visible={}",
                 parent.0,
@@ -556,9 +592,9 @@ impl DesktopLayer {
                 self.surfaces = made;
                 return;
             }
-            for (_, hwnd) in made {
+            for s in made {
                 unsafe {
-                    let _ = DestroyWindow(hwnd);
+                    let _ = DestroyWindow(s.hwnd);
                 }
             }
         }
@@ -566,10 +602,10 @@ impl DesktopLayer {
 
     /// Suspend or resume every surface (screen lock, display off, battery).
     pub fn suspend(&self, on: bool) {
-        for (_, hwnd) in &self.surfaces {
+        for s in &self.surfaces {
             unsafe {
                 let _ = PostMessageW(
-                    *hwnd,
+                    s.hwnd,
                     WM_ANIM_SUSPEND,
                     WPARAM(if on { 1 } else { 0 }),
                     LPARAM(0),
@@ -587,10 +623,10 @@ impl DesktopLayer {
         animation: Option<&Animation>,
         cfg: &crate::config::Config,
     ) -> bool {
-        if let Some(pos) = self.surfaces.iter().position(|(id, _)| id == &monitor.id) {
-            let (_, hwnd) = self.surfaces.remove(pos);
+        if let Some(pos) = self.surfaces.iter().position(|s| s.id == monitor.id) {
+            let s = self.surfaces.remove(pos);
             unsafe {
-                let _ = DestroyWindow(hwnd);
+                let _ = DestroyWindow(s.hwnd);
             }
         }
         let Some(animation) = animation else {
@@ -622,7 +658,12 @@ impl DesktopLayer {
             "replace_one: swapped screen at {},{} in place",
             monitor.rect.left, monitor.rect.top
         ));
-        self.surfaces.push((monitor.id.clone(), hwnd));
+        self.surfaces.push(SurfaceRec {
+            id: monitor.id.clone(),
+            hwnd,
+            rect: monitor.rect,
+            web: matches!(animation, Animation::Web(_)),
+        });
         true
     }
 }
@@ -681,6 +722,16 @@ fn create_surface(
             })
         }
         Animation::Video(path) => Media::VideoPending(path.clone()),
+        Animation::Web(spec) => {
+            // Kick the shared environment now; the controller follows once it
+            // is ready (polled from tick()).
+            crate::web::ensure_environment();
+            Media::WebPending {
+                spec: spec.clone(),
+                requested: false,
+                failed: false,
+            }
+        }
     };
 
     // Child coordinates are relative to the parent's *client* origin, which is
@@ -698,6 +749,7 @@ fn create_surface(
     let pace_label = match animation {
         Animation::Gif(_) => "gif",
         Animation::Video(_) => "video",
+        Animation::Web(_) => "web",
     };
     let state = Box::new(SurfaceState {
         media,
@@ -759,8 +811,13 @@ fn create_surface(
             }
         }
 
-        // A single-frame GIF is painted once and needs no pacing at all.
-        let animates = !matches!(&st.media, Media::Gif(g) if g.anim.is_static());
+        // A single-frame GIF is painted once, and a web page paces itself
+        // inside Chromium -- neither needs a pacing thread.
+        let animates = match &st.media {
+            Media::Gif(g) => !g.anim.is_static(),
+            Media::WebPending { .. } | Media::Web(_) => false,
+            _ => true,
+        };
         if animates {
             let pace_ms = match &st.media {
                 // Poll a fraction of the shortest frame this clip actually has.
@@ -773,11 +830,12 @@ fn create_surface(
                 _ => cfg.video_pace_interval_ms(),
             };
             st.pacer = Some(Pacer::new(hwnd.0 as isize, pace_ms));
+            // Accurate frame pacing matters for as long as this surface lives.
+            // Surfaces without a pacer (web, static GIF) skip the 1 ms clock.
+            hires_acquire();
         }
         // Slow timer: only re-evaluates whether we should be running at all.
         SetTimer(hwnd, TIMER_FRAME, VIDEO_STATE_CHECK_MS, None);
-        // Accurate frame pacing matters for as long as this surface lives.
-        hires_acquire();
         let _ = RedrawWindow(hwnd, None, None, RDW_INVALIDATE);
         Some(hwnd)
     }
@@ -854,8 +912,11 @@ unsafe extern "system" fn anim_proc(
             KillTimer(hwnd, TIMER_FRAME).ok();
             let ptr = SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0) as *mut SurfaceState;
             if !ptr.is_null() {
+                let had_pacer = (*ptr).pacer.is_some();
                 drop(Box::from_raw(ptr));
-                hires_release();
+                if had_pacer {
+                    hires_release();
+                }
             }
             return LRESULT(0);
         }
@@ -875,10 +936,28 @@ unsafe fn tick(hwnd: HWND, st: &mut SurfaceState) {
             }
         }
     }
+    // WebView2 startup: the shared environment arrives asynchronously, so a
+    // pending web surface asks for its controller here, once, when it does.
+    if let Media::WebPending {
+        spec,
+        requested,
+        failed,
+    } = &mut st.media
+    {
+        if !*failed && !*requested {
+            if let Some(env) = crate::web::environment() {
+                *requested = true;
+                crate::web::begin_controller(hwnd, &env, spec.clone(), st.size.0, st.size.1);
+            } else if crate::web::environment_failed() {
+                *failed = true;
+            }
+        }
+    }
     let next = if st.paused_now {
         PAUSED_RECHECK_MS
     } else if matches!(&st.media, Media::VideoPending(_))
         || matches!(&st.media, Media::Video(p) if !p.is_ready())
+        || matches!(&st.media, Media::WebPending { failed: false, .. })
     {
         OPENING_RECHECK_MS
     } else {
@@ -904,13 +983,18 @@ unsafe fn reconcile(st: &mut SurfaceState) -> bool {
         ));
         st.paused_now = paused;
     }
-    if let Media::Video(player) = &mut st.media {
+    match &mut st.media {
         // Stop the decoder outright rather than just skipping presentation.
-        if paused {
-            player.pause();
-        } else {
-            player.play();
+        Media::Video(player) => {
+            if paused {
+                player.pause();
+            } else {
+                player.play();
+            }
         }
+        // Hide + suspend parks Chromium's renderer the same way.
+        Media::Web(web) => web.set_visible(!paused),
+        _ => {}
     }
     if let Some(pacer) = &st.pacer {
         pacer.set_active(!paused);
@@ -972,7 +1056,7 @@ unsafe fn on_pace_tick(hwnd: HWND, st: &mut SurfaceState) {
                 presented_at = now.max(1);
             }
         }
-        Media::VideoPending(_) => {}
+        Media::VideoPending(_) | Media::WebPending { .. } | Media::Web(_) => {}
     }
     if drew {
         if presented_at != 0 {
@@ -993,7 +1077,45 @@ unsafe fn draw(hwnd: HWND, st: &mut SurfaceState) {
         Media::Video(player) => {
             player.present();
         }
-        Media::VideoPending(_) => {}
+        // WebView2 paints its own child window.
+        Media::VideoPending(_) | Media::WebPending { .. } | Media::Web(_) => {}
+    }
+}
+
+/// Completion callback for crate::web::begin_controller. The surface may have
+/// been destroyed (or its hwnd even reused) while WebView2 was starting up, so
+/// validate the window is still one of ours before touching its state.
+pub(crate) fn web_controller_ready(target: isize, built: Option<crate::web::WebWallpaper>) {
+    unsafe {
+        let hwnd = HWND(target as *mut core::ffi::c_void);
+        if !IsWindow(hwnd).as_bool() {
+            return; // `built` drops here and closes the controller
+        }
+        let mut class = [0u16; 64];
+        let n = GetClassNameW(hwnd, &mut class);
+        if String::from_utf16_lossy(&class[..n.max(0) as usize]) != "WallRotateAnimSurface" {
+            return;
+        }
+        let Some(st) = surface_state(hwnd) else {
+            return;
+        };
+        let Media::WebPending { .. } = &st.media else {
+            return;
+        };
+        match built {
+            Some(web) => {
+                crate::log::line("web: surface live");
+                st.media = Media::Web(web);
+                // Apply the current pause verdict immediately -- the page may
+                // have come up behind a maximized window.
+                reconcile(st);
+            }
+            None => {
+                if let Media::WebPending { failed, .. } = &mut st.media {
+                    *failed = true;
+                }
+            }
+        }
     }
 }
 

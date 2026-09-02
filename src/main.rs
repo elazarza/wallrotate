@@ -16,6 +16,7 @@ mod autostart;
 mod config;
 mod desktop;
 mod gifanim;
+mod hook;
 mod hotkey;
 mod log;
 mod scan;
@@ -24,6 +25,7 @@ mod state;
 mod tray;
 mod util;
 mod wallpaper;
+mod web;
 
 use config::{AnimatedMode, Config};
 use desktop::{Animation, DesktopLayer};
@@ -101,10 +103,19 @@ const ID_USE_GIF: usize = 1013;
 const ID_USE_VIDEO: usize = 1014;
 const ID_ANIM_FOLDER_ONLY: usize = 1015;
 const ID_ROTATE_ALL: usize = 1016;
+const ID_WEB_OFF: usize = 1017;
+const ID_WEB_GRID: usize = 1018;
+const ID_WEB_DOCK: usize = 1019;
+const ID_WEB_MINIMAL: usize = 1020;
+const ID_WEB_INTERACTIVE: usize = 1021;
+const ID_WEB_EDIT: usize = 1022;
+const ID_WEB_ALL: usize = 1023;
 /// One id per screen, offset by its index.
 const ID_ROTATE_SCREEN_BASE: usize = 1100;
 /// One-shot "change this screen now", one id per screen.
 const ID_NEXT_SCREEN_BASE: usize = 1200;
+/// Which screens show the web launcher, one id per screen.
+const ID_WEB_SCREEN_BASE: usize = 1300;
 
 struct App {
     hwnd: HWND,
@@ -231,6 +242,11 @@ fn main() {
 
     let cfg = config::load();
     config::upgrade_file(&cfg);
+    if cfg.web_active() {
+        // Refresh the materialised preset pages so an upgraded exe's designs
+        // take effect; the user's launcher.json is never overwritten.
+        web::write_presets();
+    }
     let st = state::load();
     let exe = std::env::current_exe().unwrap_or_default();
 
@@ -295,6 +311,7 @@ fn main() {
 
     {
         let a = app().expect("app installed");
+        hook::clear();
         a.layer.clear();
         a.tray.remove();
         if a.hotkey_ok {
@@ -786,6 +803,63 @@ unsafe fn show_menu(a: &mut App) {
         let _ = AppendMenuW(menu, MF_POPUP, sub.0 as usize, PCWSTR(label.as_ptr()));
     }
 
+    // The clickable web launcher wallpaper.
+    if let Ok(sub) = CreatePopupMenu() {
+        let flag = |on: bool| {
+            if on {
+                MF_STRING | MF_CHECKED
+            } else {
+                MF_STRING
+            }
+        };
+        let setting = a.cfg.web_wallpaper.trim().to_string();
+        let _ = AppendMenuW(sub, flag(setting.is_empty()), ID_WEB_OFF, w!("Off"));
+        let _ = AppendMenuW(sub, flag(setting == "grid"), ID_WEB_GRID, w!("Grid preset"));
+        let _ = AppendMenuW(sub, flag(setting == "dock"), ID_WEB_DOCK, w!("Dock preset"));
+        let _ = AppendMenuW(
+            sub,
+            flag(setting == "minimal"),
+            ID_WEB_MINIMAL,
+            w!("Minimal preset"),
+        );
+        if !setting.is_empty() && !matches!(setting.as_str(), "grid" | "dock" | "minimal") {
+            // A custom page path set in config.toml; shown, not switchable here.
+            let label = wide(&format!("Custom: {}", a.cfg.web_label()));
+            let _ = AppendMenuW(
+                sub,
+                MF_STRING | MF_CHECKED | MF_DISABLED | MF_GRAYED,
+                0,
+                PCWSTR(label.as_ptr()),
+            );
+        }
+        let _ = AppendMenuW(sub, MF_SEPARATOR, 0, PCWSTR::null());
+        let _ = AppendMenuW(
+            sub,
+            flag(a.cfg.web_screens.is_empty()),
+            ID_WEB_ALL,
+            w!("On all screens"),
+        );
+        for (i, monitor) in a.monitors.iter().enumerate() {
+            let label = wide(&monitor.label(i));
+            let _ = AppendMenuW(
+                sub,
+                flag(a.cfg.web_screens.is_empty() || a.cfg.web_screens.contains(&(i + 1))),
+                ID_WEB_SCREEN_BASE + i,
+                PCWSTR(label.as_ptr()),
+            );
+        }
+        let _ = AppendMenuW(sub, MF_SEPARATOR, 0, PCWSTR::null());
+        let _ = AppendMenuW(
+            sub,
+            flag(a.cfg.web_interactive),
+            ID_WEB_INTERACTIVE,
+            w!("Clickable (launch on click)"),
+        );
+        let _ = AppendMenuW(sub, MF_STRING, ID_WEB_EDIT, w!("Edit launcher tiles..."));
+        let label = wide(&format!("Web launcher ({})", a.cfg.web_label()));
+        let _ = AppendMenuW(menu, MF_POPUP, sub.0 as usize, PCWSTR(label.as_ptr()));
+    }
+
     let _ = AppendMenuW(menu, MF_STRING, ID_RESCAN, w!("Rescan wallpaper folder"));
     let _ = AppendMenuW(menu, MF_STRING, ID_OPEN_FOLDER, w!("Open wallpaper folder"));
     let _ = AppendMenuW(menu, MF_STRING, ID_OPEN_CONFIG, w!("Edit settings..."));
@@ -894,8 +968,52 @@ fn on_command(a: &mut App, id: usize) {
             config::save(&a.cfg);
             update_tip(a);
         }
+        ID_WEB_OFF => set_web_wallpaper(a, ""),
+        ID_WEB_GRID => set_web_wallpaper(a, "grid"),
+        ID_WEB_DOCK => set_web_wallpaper(a, "dock"),
+        ID_WEB_MINIMAL => set_web_wallpaper(a, "minimal"),
+        ID_WEB_ALL => {
+            a.cfg.web_screens.clear();
+            config::save(&a.cfg);
+            apply(a);
+        }
+        ID_WEB_INTERACTIVE => {
+            a.cfg.web_interactive = !a.cfg.web_interactive;
+            config::save(&a.cfg);
+            sync_hook(a);
+        }
+        ID_WEB_EDIT => {
+            web::write_presets();
+            open_path(&web::launcher_path());
+        }
+        id if id >= ID_WEB_SCREEN_BASE && id < ID_WEB_SCREEN_BASE + a.monitors.len().max(1) => {
+            a.cfg.toggle_web_screen(id - ID_WEB_SCREEN_BASE);
+            config::save(&a.cfg);
+            apply(a);
+        }
         _ => {}
     }
+}
+
+/// Switch the web launcher on (a preset name) or off (""). Re-applies the
+/// current assignments in place -- no playlist step, wallpapers stay put.
+fn set_web_wallpaper(a: &mut App, value: &str) {
+    a.cfg.web_wallpaper = String::from(value);
+    if !value.is_empty() {
+        // Refresh the materialised presets so a new exe's designs win.
+        web::write_presets();
+    }
+    config::save(&a.cfg);
+    apply(a);
+}
+
+/// Keep the click-forwarding hook in step with the surfaces that exist now.
+fn sync_hook(a: &App) {
+    hook::sync(if a.cfg.web_interactive {
+        a.layer.web_targets()
+    } else {
+        Vec::new()
+    });
 }
 
 fn set_animated_mode(a: &mut App, mode: AnimatedMode) {
@@ -1160,9 +1278,13 @@ fn apply(a: &mut App) {
         limits.budget_bytes /= gif_count;
     }
 
+    // The web launcher takes a screen over entirely: it draws above where the
+    // GIF or video would, so decoding an animation there would be pure waste.
+    let web_spec = web_spec_for(&a.cfg);
+
     let mut items: Vec<(MonitorInfo, Animation)> = Vec::new();
     let mut notes: Vec<(String, String)> = Vec::new();
-    for monitor in &a.monitors {
+    for (idx, monitor) in a.monitors.iter().enumerate() {
         let Some(asn) = a.st.assignments.iter().find(|x| x.monitor == monitor.id) else {
             continue;
         };
@@ -1175,6 +1297,15 @@ fn apply(a: &mut App) {
             if p.is_file() {
                 let _ = a.wp.set(&monitor.id, p);
             }
+        }
+
+        if let Some(spec) = web_spec.as_ref().filter(|_| a.cfg.web_on_screen(idx)) {
+            notes.push((
+                monitor.id.clone(),
+                format!("web launcher ({})", a.cfg.web_label()),
+            ));
+            items.push((monitor.clone(), Animation::Web(spec.clone())));
+            continue;
         }
 
         if asn.animated {
@@ -1232,7 +1363,12 @@ fn apply_one(a: &mut App, index: usize) {
 
     let mut animation: Option<Animation> = None;
     let mut note: Option<String> = None;
-    if asn.animated {
+    if a.cfg.web_on_screen(index) {
+        if let Some(spec) = web_spec_for(&a.cfg) {
+            note = Some(format!("web launcher ({})", a.cfg.web_label()));
+            animation = Some(Animation::Web(spec));
+        }
+    } else if asn.animated {
         let p = PathBuf::from(&asn.path);
         if p.is_file() {
             if scan::is_video(&p) {
@@ -1260,12 +1396,25 @@ fn apply_one(a: &mut App, index: usize) {
         rebuild_layer(a);
     } else {
         a.layer.suspend(a.should_suspend());
+        sync_hook(a);
         // Same shell-churn risk as a full rebuild: check shortly afterwards.
         a.verify_tries = 0;
         unsafe {
             SetTimer(a.hwnd, TIMER_VERIFY, VERIFY_DELAY_MS, None);
         }
     }
+}
+
+/// Resolve the configured web wallpaper into the spec a surface needs.
+fn web_spec_for(cfg: &Config) -> Option<web::WebSpec> {
+    if !cfg.web_active() {
+        return None;
+    }
+    web::resolve(&cfg.web_wallpaper).map(|(root, url)| web::WebSpec {
+        root,
+        url,
+        backgrounds: cfg.root(),
+    })
 }
 
 /// Put the animated surfaces back using the already-decoded frames.
@@ -1279,6 +1428,7 @@ fn rebuild_layer(a: &mut App) {
         suspend, a.locked, a.display_off, a.on_battery, a.cfg.pause_on_battery
     ));
     a.layer.suspend(suspend);
+    sync_hook(a);
     // Verify whenever animations were wanted, not just when they appeared: at
     // sign-in the shell may not have a desktop to attach to yet.
     if !a.anims.is_empty() {

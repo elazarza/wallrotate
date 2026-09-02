@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WallRotate — Grid Launcher</title>
+<style>
+  :root {
+    --ink:        #e8ecf4;
+    --ink-dim:    rgba(232, 236, 244, 0.55);
+    --ink-faint:  rgba(232, 236, 244, 0.32);
+    --glass:      rgba(255, 255, 255, 0.055);
+    --glass-hi:   rgba(255, 255, 255, 0.10);
+    --glass-edge: rgba(255, 255, 255, 0.10);
+    --glass-edge-hi: rgba(255, 255, 255, 0.22);
+    --tile:       clamp(112px, 7.6vw, 168px);
+    --gap:        clamp(12px, 1.3vw, 22px);
+    --radius:     clamp(14px, 1.2vw, 22px);
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+    background: #07090f;
+    color: var(--ink);
+    font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- background stack (bottom to top) ---------- */
+
+  .layer {
+    position: fixed;
+    inset: 0;
+  }
+
+  /* base ground: deep navy-charcoal vertical wash, always present */
+  #ground {
+    background:
+      radial-gradient(120% 90% at 50% -10%, #10182b 0%, #0a0e1a 45%, #05070d 100%);
+  }
+
+  /* optional user background image (from launcher.json), under the scrim */
+  #bgimg {
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+  }
+  #bgimg.on { opacity: 1; }
+
+  /* aurora: three big soft gradient blobs, transform/opacity only, very slow */
+  #aurora { overflow: hidden; }
+  .blob {
+    position: absolute;
+    width: 68vw;
+    height: 68vw;
+    border-radius: 50%;
+    will-change: transform, opacity;
+  }
+  .b1 {
+    left: -18vw; top: -30vw;
+    background: radial-gradient(circle at 50% 50%, rgba(46, 106, 220, 0.34) 0%, rgba(46, 106, 220, 0.10) 42%, rgba(46, 106, 220, 0) 68%);
+    animation: driftA 44s ease-in-out infinite alternate;
+  }
+  .b2 {
+    right: -24vw; top: -18vw;
+    background: radial-gradient(circle at 50% 50%, rgba(120, 60, 210, 0.28) 0%, rgba(120, 60, 210, 0.08) 44%, rgba(120, 60, 210, 0) 70%);
+    animation: driftB 58s ease-in-out infinite alternate;
+  }
+  .b3 {
+    left: 22vw; bottom: -46vw;
+    background: radial-gradient(circle at 50% 50%, rgba(20, 160, 160, 0.20) 0%, rgba(20, 160, 160, 0.06) 45%, rgba(20, 160, 160, 0) 70%);
+    animation: driftC 66s ease-in-out infinite alternate;
+  }
+  @keyframes driftA {
+    from { transform: translate3d(0, 0, 0) scale(1);        opacity: 0.85; }
+    to   { transform: translate3d(9vw, 6vh, 0) scale(1.18); opacity: 0.55; }
+  }
+  @keyframes driftB {
+    from { transform: translate3d(0, 0, 0) scale(1.1);        opacity: 0.6; }
+    to   { transform: translate3d(-8vw, 10vh, 0) scale(0.92); opacity: 0.9; }
+  }
+  @keyframes driftC {
+    from { transform: translate3d(0, 0, 0) scale(1);         opacity: 0.7; }
+    to   { transform: translate3d(-6vw, -7vh, 0) scale(1.22); opacity: 0.45; }
+  }
+  /* when a photo background is set, retire the aurora entirely */
+  body.has-image #aurora { display: none; }
+
+  /* scrim: guarantees legibility over any background image */
+  #scrim {
+    background:
+      linear-gradient(180deg, rgba(5, 7, 13, 0.55) 0%, rgba(5, 7, 13, 0.30) 34%, rgba(5, 7, 13, 0.52) 74%, rgba(5, 7, 13, 0.78) 100%);
+  }
+  body.has-image #scrim {
+    background:
+      radial-gradient(85% 70% at 50% 42%, rgba(5, 7, 13, 0.38) 0%, rgba(5, 7, 13, 0.62) 100%),
+      linear-gradient(180deg, rgba(5, 7, 13, 0.45) 0%, rgba(5, 7, 13, 0.25) 40%, rgba(5, 7, 13, 0.72) 100%);
+  }
+
+  /* faint vignette grain-free texture via gradient only */
+  #vignette {
+    background: radial-gradient(120% 120% at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.35) 100%);
+  }
+
+  /* ---------- content ---------- */
+
+  #stage {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    /* symmetric side padding keeps the layout centered while clearing the
+       desktop-icon column on the left; bottom padding clears the taskbar */
+    padding: 4vh 150px 90px 150px;
+  }
+
+  #clockwrap {
+    text-align: center;
+    margin-bottom: clamp(20px, 4.5vh, 56px);
+  }
+  #time {
+    font-size: clamp(64px, 8.6vw, 168px);
+    font-weight: 200;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
+  }
+  #time .colon { opacity: 0.6; font-weight: 100; }
+  #date {
+    margin-top: clamp(8px, 1.4vh, 16px);
+    font-size: clamp(14px, 1.15vw, 22px);
+    font-weight: 400;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    text-shadow: 0 1px 12px rgba(0, 0, 0, 0.5);
+  }
+  #clockwrap.off { display: none; }
+
+  #grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, var(--tile));
+    justify-content: center;
+    gap: var(--gap);
+    width: 100%;
+    /* cap at ~8 columns */
+    max-width: calc(8 * var(--tile) + 7 * var(--gap));
+    max-height: 62vh;
+    overflow: hidden;
+  }
+
+  .tile {
+    box-sizing: border-box;
+    height: var(--tile);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(8px, 0.8vw, 14px);
+    padding: 10px 8px;
+    cursor: pointer;
+    background:
+      linear-gradient(160deg, var(--glass-hi) 0%, var(--glass) 38%, rgba(255,255,255,0.028) 100%);
+    border: 1px solid var(--glass-edge);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 8px 24px rgba(0, 0, 0, 0.28);
+    transition:
+      transform 0.18s cubic-bezier(0.2, 0.8, 0.3, 1),
+      border-color 0.18s ease,
+      background-color 0.18s ease,
+      box-shadow 0.18s ease;
+  }
+  .tile:hover {
+    transform: translateY(-5px);
+    border-color: var(--glass-edge-hi);
+    background:
+      linear-gradient(160deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.07) 38%, rgba(255,255,255,0.04) 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 16px 36px rgba(0, 0, 0, 0.38);
+  }
+  .tile:active {
+    transform: translateY(-1px) scale(0.965);
+    transition-duration: 0.06s;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 4px 14px rgba(0, 0, 0, 0.3);
+  }
+
+  .tile .icon {
+    font-size: clamp(30px, 2.6vw, 52px);
+    line-height: 1;
+    filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.35)); /* static, never animated */
+    pointer-events: none;
+  }
+  .tile .label {
+    font-size: clamp(11px, 0.85vw, 15px);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--ink-dim);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+    transition: color 0.18s ease;
+  }
+  .tile:hover .label { color: var(--ink); }
+
+  #hint {
+    margin-top: clamp(18px, 3vh, 36px);
+    font-size: clamp(12px, 0.9vw, 15px);
+    letter-spacing: 0.08em;
+    color: var(--ink-faint);
+    text-align: center;
+  }
+  #hint.off { display: none; }
+</style>
+</head>
+<body>
+  <div class="layer" id="ground"></div>
+  <div class="layer" id="bgimg"></div>
+  <div class="layer" id="aurora">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+  </div>
+  <div class="layer" id="scrim"></div>
+  <div class="layer" id="vignette"></div>
+
+  <div id="stage">
+    <div id="clockwrap">
+      <div id="time">--<span class="colon">:</span>--</div>
+      <div id="date">&nbsp;</div>
+    </div>
+    <div id="grid"></div>
+    <div id="hint" class="off">edit launcher.json in the WallRotate tray menu</div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ---------- clock ---------- */
+
+  var DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  var MONTHS = ["January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"];
+
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+
+  function tick() {
+    var now = new Date();
+    var timeEl = $("time");
+    timeEl.textContent = "";
+    timeEl.appendChild(document.createTextNode(pad(now.getHours())));
+    var colon = document.createElement("span");
+    colon.className = "colon";
+    colon.textContent = ":";
+    timeEl.appendChild(colon);
+    timeEl.appendChild(document.createTextNode(pad(now.getMinutes())));
+    $("date").textContent =
+      DAYS[now.getDay()] + ", " + now.getDate() + " " + MONTHS[now.getMonth()] + " " + now.getFullYear();
+  }
+
+  function startClock() {
+    tick();
+    setInterval(tick, 1000);
+  }
+
+  /* ---------- launching ---------- */
+
+  function launch(tile) {
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage({
+        action: "open",
+        target: tile.target,
+        args: tile.args || ""
+      });
+    } else {
+      console.log(tile);
+    }
+  }
+
+  /* ---------- rendering ---------- */
+
+  function renderTiles(tiles) {
+    var grid = $("grid");
+    grid.textContent = "";
+    tiles.forEach(function (t) {
+      if (!t || typeof t.target !== "string" || t.target === "") return;
+      var el = document.createElement("div");
+      el.className = "tile";
+      el.title = String(t.label || t.target);
+
+      var icon = document.createElement("div");
+      icon.className = "icon";
+      icon.textContent = (typeof t.icon === "string" && t.icon) ? t.icon : "●";
+      el.appendChild(icon);
+
+      var label = document.createElement("div");
+      label.className = "label";
+      label.textContent = String(t.label || t.target);
+      el.appendChild(label);
+
+      el.addEventListener("click", function () { launch(t); });
+      grid.appendChild(el);
+    });
+    return grid.children.length;
+  }
+
+  function applyConfig(cfg) {
+    cfg = (cfg && typeof cfg === "object") ? cfg : {};
+
+    /* clock: default on, only an explicit false hides it */
+    if (cfg.clock === false) {
+      $("clockwrap").classList.add("off");
+    } else {
+      startClock();
+    }
+
+    /* background image, layered under the scrim */
+    if (typeof cfg.background === "string" && cfg.background !== "") {
+      var img = $("bgimg");
+      img.style.backgroundImage = 'url("' + cfg.background.replace(/"/g, '\\"') + '")';
+      img.classList.add("on");
+      document.body.classList.add("has-image");
+    }
+
+    /* tiles */
+    var count = 0;
+    if (Array.isArray(cfg.tiles) && cfg.tiles.length) {
+      count = renderTiles(cfg.tiles);
+    }
+    if (count === 0) {
+      $("hint").classList.remove("off");
+    }
+  }
+
+  fetch("/launcher.json")
+    .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error("http " + r.status)); })
+    .then(applyConfig)
+    .catch(function () { applyConfig(null); });
+})();
+</script>
+</body>
+</html>

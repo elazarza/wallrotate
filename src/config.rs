@@ -68,6 +68,15 @@ pub struct Config {
     pub start_with_windows: bool,
     /// Show a tray balloon after each rotation.
     pub notify_on_rotate: bool,
+
+    /// Clickable web wallpaper: "" (off), a preset name ("grid", "dock",
+    /// "minimal"), or a full path to your own .html file.
+    pub web_wallpaper: String,
+    /// Screen numbers (1-based) that show the web wallpaper. Empty = all.
+    pub web_screens: Vec<usize>,
+    /// Forward desktop clicks into the page so its tiles actually launch
+    /// things. Off leaves it purely decorative.
+    pub web_interactive: bool,
 }
 
 impl Default for Config {
@@ -99,6 +108,9 @@ impl Default for Config {
             pause_on_battery: false,
             start_with_windows: true,
             notify_on_rotate: false,
+            web_wallpaper: String::new(),
+            web_screens: vec![],
+            web_interactive: true,
         }
     }
 }
@@ -206,6 +218,47 @@ impl Config {
     pub fn video_frame_gap_us(&self) -> u64 {
         let fps = self.video_max_fps.clamp(1, 240) as u64;
         1_000_000 / fps
+    }
+
+    /// Is the web launcher wallpaper on at all?
+    pub fn web_active(&self) -> bool {
+        !self.web_wallpaper.trim().is_empty()
+    }
+
+    /// Does this screen (0-based) show the web wallpaper?
+    pub fn web_on_screen(&self, index: usize) -> bool {
+        self.web_active()
+            && (self.web_screens.is_empty() || self.web_screens.contains(&(index + 1)))
+    }
+
+    /// Same one-click semantics as toggle_rotate_screen.
+    pub fn toggle_web_screen(&mut self, index: usize) {
+        let number = index + 1;
+        if self.web_screens.is_empty() {
+            self.web_screens = vec![number];
+            return;
+        }
+        if let Some(pos) = self.web_screens.iter().position(|n| *n == number) {
+            self.web_screens.remove(pos);
+        } else {
+            self.web_screens.push(number);
+            self.web_screens.sort_unstable();
+        }
+    }
+
+    /// Short name for the tray menu: "off", "grid", or the custom file name.
+    pub fn web_label(&self) -> String {
+        let w = self.web_wallpaper.trim();
+        if w.is_empty() {
+            return String::from("off");
+        }
+        if matches!(w, "grid" | "dock" | "minimal") {
+            return w.to_string();
+        }
+        std::path::Path::new(w)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| String::from("custom"))
     }
 
     pub fn interval_secs(&self) -> u64 {

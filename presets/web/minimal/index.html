@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WallRotate — Minimal</title>
+<style>
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+    background: #050507;
+    font-family: "Segoe UI Variable Display", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #e8e8ec;
+  }
+
+  /* ---- background layers (all fixed, stacked under content) ---- */
+
+  #bg-image {
+    position: fixed;
+    inset: 0;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    z-index: 0;
+    display: none;
+  }
+
+  /* scrim over a configured image so text stays legible */
+  #bg-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: none;
+    background:
+      radial-gradient(ellipse 120% 90% at 50% 42%, rgba(3,3,5,0.45) 0%, rgba(3,3,5,0.72) 62%, rgba(3,3,5,0.9) 100%),
+      linear-gradient(rgba(3,3,5,0.25), rgba(3,3,5,0.25));
+  }
+
+  /* pure-CSS ambience when no image: near-black + breathing vignette */
+  #bg-css {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse 90% 70% at 50% 40%, #0b0b10 0%, #060608 55%, #030304 100%);
+  }
+
+  #bg-breathe {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 70% 55% at 50% 42%, rgba(120, 130, 170, 0.055) 0%, rgba(120, 130, 170, 0.0) 60%),
+      radial-gradient(ellipse 140% 110% at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.5) 100%);
+    opacity: 0.35;
+    animation: breathe 16s ease-in-out infinite alternate;
+  }
+
+  @keyframes breathe {
+    from { opacity: 0.35; }
+    to   { opacity: 0.9;  }
+  }
+
+  /* ---- content ---- */
+
+  #stage {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    /* keep clear of desktop icons (left) and taskbar (bottom) */
+    padding: 4vh 4vw 80px 150px;
+    padding-left: max(4vw, 150px);
+  }
+
+  #inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* nudge the whole block slightly above true center; reads better on a desktop */
+    transform: translateY(-2.5vh);
+  }
+
+  #clock {
+    font-size: clamp(5rem, 13.5vw, 15rem);
+    font-weight: 100;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    color: rgba(240, 240, 246, 0.92);
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 60px rgba(0, 0, 0, 0.55);
+  }
+
+  #date {
+    margin-top: clamp(0.6rem, 1.6vh, 1.4rem);
+    font-size: clamp(0.8rem, 1.15vw, 1.25rem);
+    font-weight: 300;
+    letter-spacing: 0.42em;
+    text-indent: 0.42em; /* re-center against trailing letter-spacing */
+    text-transform: uppercase;
+    color: rgba(220, 222, 232, 0.42);
+    white-space: nowrap;
+  }
+
+  #links {
+    margin-top: clamp(2.2rem, 6vh, 4.5rem);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: baseline;
+    column-gap: clamp(1.8rem, 3.4vw, 4.2rem);
+    row-gap: 1.1rem;
+    max-width: 72vw;
+  }
+
+  .tile {
+    cursor: pointer;
+    font-size: clamp(0.72rem, 0.95vw, 1.05rem);
+    font-weight: 300;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: rgba(235, 236, 244, 0.92);
+    opacity: 0.34;
+    transition: opacity 0.35s ease, transform 0.35s ease;
+    white-space: nowrap;
+    padding: 0.35em 0.1em;
+  }
+
+  .tile:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+
+  .tile:active {
+    opacity: 0.7;
+    transform: translateY(0);
+  }
+
+  .tile .ico {
+    font-size: 0.85em;
+    margin-right: 0.65em;
+    letter-spacing: normal;
+    opacity: 0.85;
+  }
+
+  #hint {
+    margin-top: clamp(2.2rem, 6vh, 4.5rem);
+    font-size: clamp(0.68rem, 0.85vw, 0.95rem);
+    font-weight: 300;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: rgba(210, 212, 224, 0.22);
+    display: none;
+  }
+
+  /* when the clock is disabled, links alone sit dead center */
+  #clock.off, #date.off { display: none; }
+  #inner.no-clock #links, #inner.no-clock #hint { margin-top: 0; }
+</style>
+</head>
+<body>
+
+<div id="bg-css"></div>
+<div id="bg-breathe"></div>
+<div id="bg-image"></div>
+<div id="bg-scrim"></div>
+
+<div id="stage">
+  <div id="inner">
+    <div id="clock">--:--</div>
+    <div id="date">&nbsp;</div>
+    <div id="links"></div>
+    <div id="hint">edit launcher.json in the WallRotate tray menu</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var elClock  = document.getElementById("clock");
+  var elDate   = document.getElementById("date");
+  var elLinks  = document.getElementById("links");
+  var elHint   = document.getElementById("hint");
+  var elInner  = document.getElementById("inner");
+  var bgImage  = document.getElementById("bg-image");
+  var bgScrim  = document.getElementById("bg-scrim");
+  var bgCss    = document.getElementById("bg-css");
+  var bgBreathe = document.getElementById("bg-breathe");
+
+  /* ---------- clock ---------- */
+
+  var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+
+  function tick() {
+    var now = new Date();
+    var t = pad(now.getHours()) + ":" + pad(now.getMinutes());
+    if (elClock.textContent !== t) elClock.textContent = t;
+    var d = now.toLocaleDateString(undefined, {
+      weekday: "long", day: "numeric", month: "long", year: "numeric"
+    });
+    if (elDate.textContent !== d) elDate.textContent = d;
+  }
+
+  function startClock() {
+    tick();
+    setInterval(tick, 1000);
+  }
+
+  /* ---------- tiles ---------- */
+
+  function openTile(tile) {
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage({
+        action: "open",
+        target: tile.target,
+        args: tile.args || ""
+      });
+    } else {
+      console.log(tile);
+    }
+  }
+
+  function renderTiles(tiles) {
+    elLinks.textContent = "";
+    if (!tiles || !tiles.length) {
+      elHint.style.display = "block";
+      return;
+    }
+    elHint.style.display = "none";
+    for (var i = 0; i < tiles.length; i++) {
+      (function (tile) {
+        if (!tile || typeof tile.target !== "string" || !tile.target) return;
+        var a = document.createElement("span");
+        a.className = "tile";
+        if (tile.icon) {
+          var ico = document.createElement("span");
+          ico.className = "ico";
+          ico.textContent = String(tile.icon);
+          a.appendChild(ico);
+        }
+        a.appendChild(document.createTextNode(String(tile.label || tile.target)));
+        a.title = String(tile.label || tile.target);
+        a.addEventListener("click", function () { openTile(tile); });
+        elLinks.appendChild(a);
+      })(tiles[i]);
+    }
+  }
+
+  /* ---------- background ---------- */
+
+  function applyBackground(url) {
+    if (typeof url === "string" && url.length > 0) {
+      bgImage.style.backgroundImage = "url(\"" + url.replace(/"/g, "%22") + "\")";
+      bgImage.style.display = "block";
+      bgScrim.style.display = "block";
+      bgCss.style.display = "none";
+      bgBreathe.style.display = "none";
+    }
+    /* else: keep the pure-CSS near-black + breathing vignette */
+  }
+
+  /* ---------- config ---------- */
+
+  function applyConfig(cfg) {
+    cfg = cfg || {};
+    var clockOn = cfg.clock !== false; /* default true */
+    if (!clockOn) {
+      elClock.className = "off";
+      elDate.className = "off";
+      elInner.className = "no-clock";
+    } else {
+      startClock();
+    }
+    applyBackground(cfg.background);
+    renderTiles(cfg.tiles);
+  }
+
+  function fallback() {
+    startClock();
+    renderTiles(null); /* shows the hint */
+  }
+
+  fetch("/launcher.json", { cache: "no-store" })
+    .then(function (r) {
+      if (!r.ok) throw new Error("http " + r.status);
+      return r.json();
+    })
+    .then(applyConfig)
+    .catch(fallback);
+})();
+</script>
+
+</body>
+</html>
